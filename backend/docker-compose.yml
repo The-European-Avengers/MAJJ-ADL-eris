@@ -1,0 +1,32 @@
+services:
+  db:
+    container_name: eris_db
+    image: postgres:13
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=eris_db
+    ports:
+      - '5435:5432'
+    volumes:
+      
+      - ./postgres_data:/var/lib/postgresql/data
+
+  app:
+    container_name: eris_app
+    build: .
+    restart: always
+    ports:
+      - '8085:80'
+    depends_on:
+      - db
+    env_file:
+      - .env
+    environment:
+      - HOST_DATABASE=db
+      - PORT_DATABASE=5432
+      - USER_DATABASE=postgres
+      - PASSWORD_DATABASE=password
+      - NAME_DATABASE=eris_db
+      - DATABASE_URL=postgresql://postgres:password@db:5432/eris_db
