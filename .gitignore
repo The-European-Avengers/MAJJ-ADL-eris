@@ -1,1 +1,7 @@
 /.idea
+.venv/
+venv/
+__pycache__/
+*.dylib
+electricity-prod/electricity_prod_2021_2026.csv
+ml/chunks/
