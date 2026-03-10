@@ -1,10 +1,10 @@
 {
-    "model": "LSTM_v2",
+    "model": "LSTM_v4",
     "window_size": 168,
     "forecast_horizon": 24,
-    "hidden_size": 128,
+    "hidden_size": 64,
     "num_layers": 2,
-    "dropout": 0.3,
+    "dropout": 0.2,
     "learning_rate": 0.001,
     "epochs": 50,
     "batch_size": 64,
@@ -16,18 +16,14 @@
         "hour_cos",
         "year_sin",
         "year_cos",
+        "dow_sin",
+        "dow_cos",
         "wind_speed",
         "temperature",
-        "solar_radiation",
-        "price_eur_mwh",
-        "wind_power_mw",
-        "solar_power_mw",
-        "renewable_share",
-        "dow_sin",
-        "dow_cos"
+        "price_eur_mwh"
     ],
-    "num_features": 16,
-    "test_mae": 19.5093722134417,
-    "test_rmse": 26.441689919770564,
-    "test_mape": 31.123218316670076
+    "num_features": 12,
+    "test_mae": 20.69811657321739,
+    "test_rmse": 27.455072561490866,
+    "test_mape": 34.49805016042983
 }
