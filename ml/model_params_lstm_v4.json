@@ -1,0 +1,29 @@
+{
+    "model": "LSTM_v4",
+    "window_size": 168,
+    "forecast_horizon": 24,
+    "hidden_size": 64,
+    "num_layers": 2,
+    "dropout": 0.2,
+    "learning_rate": 0.001,
+    "epochs": 50,
+    "batch_size": 64,
+    "features": [
+        "Carbon intensity gCO\u2082eq/kWh (direct)",
+        "diff_1",
+        "diff_24",
+        "hour_sin",
+        "hour_cos",
+        "year_sin",
+        "year_cos",
+        "dow_sin",
+        "dow_cos",
+        "wind_speed",
+        "temperature",
+        "price_eur_mwh"
+    ],
+    "num_features": 12,
+    "test_mae": 20.69811657321739,
+    "test_rmse": 27.455072561490866,
+    "test_mape": 34.49805016042983
+}

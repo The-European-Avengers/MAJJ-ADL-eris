@@ -1,0 +1,32 @@
+{
+    "model": "LSTM_v3",
+    "window_size": 168,
+    "forecast_horizon": 24,
+    "hidden_size": 128,
+    "num_layers": 2,
+    "dropout": 0.3,
+    "learning_rate": 0.0003,
+    "epochs": 100,
+    "batch_size": 64,
+    "features": [
+        "Carbon intensity gCO\u2082eq/kWh (direct)",
+        "diff_1",
+        "diff_24",
+        "hour_sin",
+        "hour_cos",
+        "year_sin",
+        "year_cos",
+        "wind_speed",
+        "temperature",
+        "solar_radiation",
+        "price_eur_mwh",
+        "wind_power_mw",
+        "renewable_share",
+        "dow_sin",
+        "dow_cos"
+    ],
+    "num_features": 15,
+    "test_mae": 21.383624715504467,
+    "test_rmse": 28.31930639840956,
+    "test_mape": 34.317798635846074
+}
