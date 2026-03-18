@@ -1,0 +1,8 @@
+{
+    "model_type": "SEASONAL",
+    "parameters": "((1, 0, 2), (1, 0, 0, 24))",
+    "test_mae": 72.91454827512692,
+    "test_rmse": 79.31948584319984,
+    "test_r2": -3.463567784589536,
+    "test_mape": NaN
+}
