@@ -1,0 +1,23 @@
+{
+    "window_size": 336,
+    "forecast_horizon": 24,
+    "learning_rate": 0.001,
+    "epochs": 50,
+    "batch_size": 32,
+    "features": [
+        "Carbon intensity gCO\u2082eq/kWh (Life cycle)",
+        "Carbon-free energy percentage (CFE%)",
+        "Renewable energy percentage (RE%)",
+        "hour",
+        "day_of_year",
+        "hour_sin",
+        "hour_cos",
+        "year_sin",
+        "year_cos",
+        "day_of_week",
+        "dow_sin",
+        "dow_cos",
+        "diff_1",
+        "diff_24"
+    ]
+}
