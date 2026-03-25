@@ -7,6 +7,9 @@ android {
     namespace = "com.example.myapplication"
     compileSdk = 35
 
+    androidResources {
+        noCompress += "tflite"
+    }
     defaultConfig {
         applicationId = "com.example.myapplication"
         minSdk = 24
@@ -50,6 +53,8 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.gson)
     implementation(libs.gson)
+
+    implementation("com.google.ai.edge.litert:litert:1.0.1")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

@@ -34,6 +34,7 @@ import com.example.myapplication.data.model.LoginRequest
 import com.example.myapplication.data.model.RegisterRequest
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.DisposableEffect
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -363,6 +364,23 @@ fun RegisterScreen(onRegisterSuccess: () -> Unit) {
 
 @Composable
 fun HomeScreen(onLogout: () -> Unit) {
+
+    val context = LocalContext.current
+    
+    // 1. Inicializar el predictor y mantenerlo en memoria durante el ciclo de vida de la pantalla
+    val predictor = remember { CarbonModelPredictor(context) }
+    
+    // 2. Estados para manejar el resultado y la carga
+    var predictionResult by remember { mutableStateOf<String?>(null) }
+    var isPredicting by remember { mutableStateOf(false) }
+
+    // 3. Asegurar que el modelo se cierra de la memoria cuando salimos de la pantalla
+    DisposableEffect(Unit) {
+        onDispose {
+            predictor.close()
+        }
+    }
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
@@ -397,6 +415,58 @@ fun HomeScreen(onLogout: () -> Unit) {
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
                 fontSize = 16.sp
             )
+
+
+            // --- NUEVO CÓDIGO DEL MODELO ---
+            if (isPredicting) {
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+            } else {
+                Button(
+                    onClick = {
+                        isPredicting = true
+                        
+                        try {
+                            // Crear datos ficticios (dummy) con la forma [1, 336, 7]
+                            val timeSteps = 336
+                            val features = 7
+                            
+                            // Rellenamos el array con un valor de ejemplo (ej. 0.5f)
+                            val dummyInput = Array(1) { 
+                                Array(timeSteps) { 
+                                    FloatArray(features) { 0.5f } 
+                                } 
+                            }
+
+                            // Ejecutar predicción
+                            val result = predictor.predict(dummyInput)
+                            predictionResult = result.joinToString(separator = ", ") { "%.2f".format(it) }
+                            
+                        } catch (e: Exception) {
+                            predictionResult = "Error: ${e.message}"
+                            Log.e("ML_Error", "Error al predecir", e)
+                        } finally {
+                            isPredicting = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary,
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text("Ejecutar Modelo CNN")
+                }
+            }
+
+            // Mostrar el resultado si existe
+            predictionResult?.let {
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Resultado: $it",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
 
             Spacer(modifier = Modifier.height(48.dp))
 
