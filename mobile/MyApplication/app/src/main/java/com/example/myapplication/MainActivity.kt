@@ -400,23 +400,37 @@ fun HomeScreen(onLogout: () -> Unit) {
         onDispose { predictor.close() }
     }
 
+    // Este bloque se ejecuta automáticamente al abrir la pantalla
     LaunchedEffect(Unit) {
         try {
-            val timeSteps = 336
-            val features = 7
-            val result = withContext(Dispatchers.Default) {
-                // Datos simulados para visualizar la gráfica
-                val dummyInput = Array(1) {
-                    Array(timeSteps) {
-                        FloatArray(features) { (10f + Math.random() * 40f).toFloat() }
-                    }
+            // Movemos todo el trabajo pesado a un hilo secundario (IO)
+            val result = withContext(Dispatchers.IO) {
+                
+                // 1. Leer el texto completo del CSV desde la carpeta assets
+                val inputStream = context.assets.open("DK-2025-hourly.csv")
+                val csvContent = inputStream.bufferedReader().use { it.readText() }
+
+                // 2. Usar nuestra nueva clase matemática para transformar el texto
+                val processor = FeatureProcessor()
+                val records = processor.parseCsvToRecords(csvContent)
+                
+                // 3. Generar la matriz de [1, 336, 7]
+                val inputTensor = processor.processData(records)
+
+                // 4. Verificar que tenemos datos suficientes e inyectarlos al modelo
+                if (inputTensor != null) {
+                    predictor.predict(inputTensor)
+                } else {
+                    throw Exception("El historial es demasiado corto. Se requieren al menos 360 horas de datos.")
                 }
-                predictor.predict(dummyInput)
             }
+            
+            // Si todo va bien, guardamos el resultado para dibujar la gráfica
             predictionValues = result.toList()
+            
         } catch (e: Exception) {
             errorMessage = "Error: ${e.message}"
-            Log.e("ML_Error", "Error al predecir", e)
+            Log.e("ML_Error", "Fallo durante el procesamiento o predicción", e)
         } finally {
             isPredicting = false
         }
@@ -435,7 +449,6 @@ fun HomeScreen(onLogout: () -> Unit) {
             
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 1. Restauramos el Logo original
             Image(
                 painter = painterResource(id = R.drawable.green_pause),
                 contentDescription = "User Avatar",
@@ -447,7 +460,6 @@ fun HomeScreen(onLogout: () -> Unit) {
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // 2. Restauramos el mensaje de bienvenida
             Text(
                 text = "Welcome User!",
                 fontSize = 28.sp,
@@ -457,7 +469,7 @@ fun HomeScreen(onLogout: () -> Unit) {
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // 3. Área central para el modelo (ocupa el espacio disponible dinámicamente)
+            // Área central dinámica
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -468,22 +480,22 @@ fun HomeScreen(onLogout: () -> Unit) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text("Generando predicción...")
+                        Text("Predicting carbon intensity...")
                     }
                 } else if (errorMessage != null) {
                     Text(
                         text = errorMessage ?: "Error desconocido",
-                        color = MaterialTheme.colorScheme.error
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
                 } else if (predictionValues.isNotEmpty()) {
-                    // Contenedor del gráfico con fondo sutil
                     Surface(
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f))
                     ) {
-                        // Llamada a la función del gráfico que ya tienes definida abajo
+                        // Dibujamos la gráfica profesional con los datos reales
                         ProfessionalPredictionChart(values = predictionValues)
                     }
                 }
@@ -491,10 +503,9 @@ fun HomeScreen(onLogout: () -> Unit) {
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // 4. Botón de Logout en su posición original
             Button(
                 onClick = onLogout,
-                modifier = Modifier.fillMaxWidth(0.5f), // Ajusta el ancho para que quede estético
+                modifier = Modifier.fillMaxWidth(0.5f),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = Color.White
