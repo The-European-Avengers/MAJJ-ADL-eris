@@ -542,10 +542,10 @@ fun HomeScreen(
                                 val body = response.body()!!
                                 onActionSuccess(body.current_streak, body.total_score)
                             } else {
-                                errorMessage = "Error del servidor: ${response.code()}"
+                                errorMessage = "Server error: ${response.code()}"
                             }
                         } catch (e: Exception) {
-                            errorMessage = "Error de red al guardar puntos."
+                            errorMessage = "Network error while saving points."
                         } finally {
                             isSubmitting = false
                         }
@@ -606,7 +606,7 @@ fun RewardScreen(
             Spacer(modifier = Modifier.height(32.dp))
             
             Text(
-                text = "¡Acción registrada correctamente!",
+                text = "Congratulations!",
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
@@ -623,15 +623,15 @@ fun RewardScreen(
                     modifier = Modifier.padding(24.dp).fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(text = "Racha actual: $streak días", fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                    Text(text = "Streak: $streak days", fontSize = 18.sp, fontWeight = FontWeight.Medium)
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(text = "Puntuación total: $totalScore pts", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(text = "Total points: $totalScore pts", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            Text("Clasificación Global", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("Global Leaderboard", fontSize = 20.sp, fontWeight = FontWeight.Bold)
             Divider(modifier = Modifier.padding(vertical = 12.dp))
 
             if (isLoading) {
@@ -653,7 +653,7 @@ fun RewardScreen(
                                 Text(text = entry.username, fontSize = 16.sp)
                             }
                             Row {
-                                Text(text = "Racha: ${entry.current_streak}", modifier = Modifier.padding(end = 16.dp))
+                                Text(text = "Streak: ${entry.current_streak}", modifier = Modifier.padding(end = 16.dp))
                                 Text(
                                     text = "${entry.total_score} pts", 
                                     fontWeight = FontWeight.Bold, 
@@ -671,7 +671,7 @@ fun RewardScreen(
                 onClick = onBackToHome,
                 modifier = Modifier.fillMaxWidth().height(50.dp)
             ) {
-                Text("Volver al Inicio", fontSize = 16.sp)
+                Text("Back to Home", fontSize = 16.sp)
             }
         }
     }
