@@ -29,3 +29,20 @@ data class RegisterResponse(
     val message: String?,
     val email: String?
 )
+
+
+// Respuesta cuando el usuario gana puntos
+data class PredictionCompleteResponse(
+    val name: String,
+    val username: String,
+    val current_streak: Int,
+    val longest_streak: Int,
+    val total_score: Float
+)
+
+// Datos para la tabla de clasificación
+data class LeaderboardEntry(
+    val username: String,
+    val current_streak: Int,
+    val total_score: Float
+)

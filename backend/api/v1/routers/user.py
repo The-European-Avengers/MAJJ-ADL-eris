@@ -1,4 +1,4 @@
-from backend.models.user_model import User
+from models.user_model import User
 from fastapi import APIRouter, Depends, HTTPException, status
 from crud import user_crud
 from schemas.user_schema import LeaderboardEntry, UserCreateSchema, UserCreatedResponseSchema, UserUpdateSchema
