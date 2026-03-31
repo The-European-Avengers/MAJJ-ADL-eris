@@ -6,8 +6,11 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -17,48 +20,42 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
-import com.example.myapplication.data.api.RetrofitClient
-import com.example.myapplication.data.local.TokenManager
-import com.example.myapplication.data.model.LoginRequest
-import com.example.myapplication.data.model.RegisterRequest
-import com.example.myapplication.ui.theme.MyApplicationTheme
-import kotlinx.coroutines.launch
-import androidx.compose.runtime.DisposableEffect
-
-
-import androidx.compose.foundation.Canvas
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-
-// Importaciones ya existentes...
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.ExperimentalTextApi
-import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.example.myapplication.data.api.RetrofitClient
+import com.example.myapplication.data.local.TokenManager
+import com.example.myapplication.data.model.RegisterRequest
+import com.example.myapplication.data.model.LeaderboardEntry // Asegúrate de tener esto en tus AuthModels
+import com.example.myapplication.ui.theme.MyApplicationTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
@@ -83,32 +80,62 @@ fun AppNavigation() {
     val startDestination = if (tokenManager.getToken() != null) "home" else "welcome"
 
     NavHost(navController = navController, startDestination = startDestination) {
-        composable("welcome") { WelcomeScreen(
-            onNavigateToLogin = { navController.navigate("login") },
-            onNavigateToRegister = { navController.navigate("register") }
-        ) }
-        composable("login") { LoginScreen(
-            onLoginSuccess = { 
-                navController.navigate("home") {
-                    popUpTo("welcome") { inclusive = true }
+        composable("welcome") { 
+            WelcomeScreen(
+                onNavigateToLogin = { navController.navigate("login") },
+                onNavigateToRegister = { navController.navigate("register") }
+            ) 
+        }
+        composable("login") { 
+            LoginScreen(
+                onLoginSuccess = { 
+                    navController.navigate("home") {
+                        popUpTo("welcome") { inclusive = true }
+                    }
                 }
-            }
-        ) }
-        composable("register") { RegisterScreen(
-            onRegisterSuccess = { 
-                navController.navigate("home") {
-                    popUpTo("welcome") { inclusive = true }
+            ) 
+        }
+        composable("register") { 
+            RegisterScreen(
+                onRegisterSuccess = { 
+                    navController.navigate("login") {
+                        popUpTo("register") { inclusive = true }
+                    }
                 }
-            }
-        ) }
-        composable("home") { HomeScreen(
-            onLogout = { 
-                tokenManager.clearToken()
-                navController.navigate("welcome") {
-                    popUpTo("home") { inclusive = true }
+            ) 
+        }
+        composable("home") { 
+            HomeScreen(
+                onLogout = { 
+                    tokenManager.clearToken()
+                    navController.navigate("welcome") {
+                        popUpTo("home") { inclusive = true }
+                    }
+                },
+                onActionSuccess = { streak, score ->
+                    // Navegamos a la pantalla de recompensa pasando los puntos
+                    navController.navigate("reward/$streak/$score")
                 }
-            }
-        ) }
+            ) 
+        }
+        composable(
+            route = "reward/{streak}/{score}",
+            arguments = listOf(
+                navArgument("streak") { type = NavType.IntType },
+                navArgument("score") { type = NavType.FloatType }
+            )
+        ) { backStackEntry ->
+            val streak = backStackEntry.arguments?.getInt("streak") ?: 0
+            val score = backStackEntry.arguments?.getFloat("score") ?: 0f
+            
+            RewardScreen(
+                streak = streak,
+                totalScore = score,
+                onBackToHome = {
+                    navController.popBackStack("home", inclusive = false)
+                }
+            )
+        }
     }
 }
 
@@ -236,14 +263,8 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                         isLoading = true
                         scope.launch {
                             try {
-                                val request = LoginRequest(username= username, password = password)
                                 val response = RetrofitClient.apiService.login(username, password)
 
-                                Log.d("LoginRequest", "Request: $request")
-
-                                Log.d("LoginResponse", "Response: $response")
-
-                                
                                 if (response.isSuccessful && response.body() != null) {
                                     val jwt = response.body()!!.accessToken
                                     tokenManager.saveToken(jwt)
@@ -388,46 +409,46 @@ fun RegisterScreen(onRegisterSuccess: () -> Unit) {
 }
 
 @Composable
-fun HomeScreen(onLogout: () -> Unit) {
+fun HomeScreen(
+    onLogout: () -> Unit,
+    onActionSuccess: (Int, Float) -> Unit 
+) {
     val context = LocalContext.current
     val predictor = remember { CarbonModelPredictor(context) }
-    
+    val coroutineScope = rememberCoroutineScope()
+    val tokenManager = remember { TokenManager(context) }
+    val authToken = tokenManager.getToken()?.let { "Bearer $it" } ?: ""
+
     var predictionValues by remember { mutableStateOf<List<Float>>(emptyList()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isPredicting by remember { mutableStateOf(true) }
+    var isSubmitting by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
         onDispose { predictor.close() }
     }
 
-    // Este bloque se ejecuta automáticamente al abrir la pantalla
-    LaunchedEffect(Unit) {
+    LaunchedEffect(authToken) {
+        if (authToken.isEmpty()) {
+            isPredicting = false
+            errorMessage = "Sesion no valida. Inicia sesion de nuevo."
+            return@LaunchedEffect
+        }
         try {
-            // Movemos todo el trabajo pesado a un hilo secundario (IO)
             val result = withContext(Dispatchers.IO) {
-                
-                // 1. Leer el texto completo del CSV desde la carpeta assets
                 val inputStream = context.assets.open("DK-2025-hourly.csv")
                 val csvContent = inputStream.bufferedReader().use { it.readText() }
-
-                // 2. Usar nuestra nueva clase matemática para transformar el texto
                 val processor = FeatureProcessor()
                 val records = processor.parseCsvToRecords(csvContent)
-                
-                // 3. Generar la matriz de [1, 336, 7]
                 val inputTensor = processor.processData(records)
 
-                // 4. Verificar que tenemos datos suficientes e inyectarlos al modelo
                 if (inputTensor != null) {
                     predictor.predict(inputTensor)
                 } else {
                     throw Exception("El historial es demasiado corto. Se requieren al menos 360 horas de datos.")
                 }
             }
-            
-            // Si todo va bien, guardamos el resultado para dibujar la gráfica
             predictionValues = result.toList()
-            
         } catch (e: Exception) {
             errorMessage = "Error: ${e.message}"
             Log.e("ML_Error", "Fallo durante el procesamiento o predicción", e)
@@ -449,27 +470,36 @@ fun HomeScreen(onLogout: () -> Unit) {
             
             Spacer(modifier = Modifier.height(16.dp))
 
-            Image(
-                painter = painterResource(id = R.drawable.green_pause),
-                contentDescription = "User Avatar",
-                modifier = Modifier
-                    .size(150.dp)
-                    .clip(CircleShape),
-                contentScale = ContentScale.Crop
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.green_pause),
+                    contentDescription = "User Avatar",
+                    modifier = Modifier
+                        .size(60.dp)
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+                Button(onClick = onLogout, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    Text("Logout", fontSize = 12.sp)
+                }
+            }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             Text(
                 text = "Welcome User!",
-                fontSize = 28.sp,
+                fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            // Área central dinámica
+            // Área de la gráfica
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -480,22 +510,20 @@ fun HomeScreen(onLogout: () -> Unit) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text("Predicting carbon intensity...")
                     }
                 } else if (errorMessage != null) {
                     Text(
                         text = errorMessage ?: "Error desconocido",
                         color = MaterialTheme.colorScheme.error,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        textAlign = TextAlign.Center
                     )
                 } else if (predictionValues.isNotEmpty()) {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(16.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f))
                     ) {
-                        // Dibujamos la gráfica profesional con los datos reales
                         ProfessionalPredictionChart(values = predictionValues)
                     }
                 }
@@ -503,18 +531,148 @@ fun HomeScreen(onLogout: () -> Unit) {
 
             Spacer(modifier = Modifier.height(32.dp))
 
+            // BOTÓN DE ACCIÓN: Cargar más tarde
             Button(
-                onClick = onLogout,
-                modifier = Modifier.fillMaxWidth(0.5f),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = Color.White
-                )
+                onClick = {
+                    coroutineScope.launch {
+                        isSubmitting = true
+                        try {
+                            val response = RetrofitClient.apiService.registerPredictionActivity(authToken, 50f)
+                            if (response.isSuccessful && response.body() != null) {
+                                val body = response.body()!!
+                                onActionSuccess(body.current_streak, body.total_score)
+                            } else {
+                                errorMessage = "Server error: ${response.code()}"
+                            }
+                        } catch (e: Exception) {
+                            errorMessage = "Network error while saving points."
+                        } finally {
+                            isSubmitting = false
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                enabled = !isSubmitting && !isPredicting,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
             ) {
-                Text("Logout", fontSize = 16.sp)
+                if (isSubmitting) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.onTertiary, modifier = Modifier.size(24.dp))
+                } else {
+                    Text("Delay Charging (+50 points)", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                }
             }
             
             Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+fun RewardScreen(
+    streak: Int,
+    totalScore: Float,
+    onBackToHome: () -> Unit
+) {
+    val context = LocalContext.current
+    val tokenManager = remember { TokenManager(context) }
+    val authToken = tokenManager.getToken()?.let { "Bearer $it" } ?: ""
+
+    var leaderboard by remember { mutableStateOf<List<LeaderboardEntry>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(authToken) {
+        if (authToken.isNotEmpty()) {
+            try {
+                val response = RetrofitClient.apiService.getLeaderboard(authToken, 10)
+                if (response.isSuccessful) {
+                    leaderboard = response.body() ?: emptyList()
+                }
+            } catch (e: Exception) {
+                // Silencioso o un Log
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(modifier = Modifier.height(32.dp))
+            
+            Text(
+                text = "Congratulations!",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                textAlign = TextAlign.Center
+            )
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp).fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(text = "Streak: $streak days", fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(text = "Total points: $totalScore pts", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Text("Global Leaderboard", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Divider(modifier = Modifier.padding(vertical = 12.dp))
+
+            if (isLoading) {
+                CircularProgressIndicator()
+            } else {
+                LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    itemsIndexed(leaderboard) { index, entry ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "#${index + 1}", 
+                                    fontWeight = FontWeight.Bold, 
+                                    modifier = Modifier.width(30.dp)
+                                )
+                                Text(text = entry.username, fontSize = 16.sp)
+                            }
+                            Row {
+                                Text(text = "Streak: ${entry.current_streak}", modifier = Modifier.padding(end = 16.dp))
+                                Text(
+                                    text = "${entry.total_score} pts", 
+                                    fontWeight = FontWeight.Bold, 
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = onBackToHome,
+                modifier = Modifier.fillMaxWidth().height(50.dp)
+            ) {
+                Text("Back to Home", fontSize = 16.sp)
+            }
         }
     }
 }
@@ -525,7 +683,6 @@ fun ProfessionalPredictionChart(values: List<Float>) {
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
     
-    // Configuración de estilos y colores
     val axisColor = MaterialTheme.colorScheme.onSurface
     val gridColor = axisColor.copy(alpha = 0.1f)
     val lineColor = MaterialTheme.colorScheme.primary
@@ -535,41 +692,33 @@ fun ProfessionalPredictionChart(values: List<Float>) {
     Canvas(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp) // Margen externo del gráfico
+            .padding(16.dp)
     ) {
-        // 1. DEFINIR MÁRGENES DE LOS EJES (Espacio para etiquetas y títulos)
-        // Usamos density para convertir DPs a Pixeles
-        val leftAreaWidth = with(density) { 60.dp.toPx() }   // Espacio para valores Y y título Y
-        val bottomAreaHeight = with(density) { 50.dp.toPx() } // Espacio para horas X y título X
+        val leftAreaWidth = with(density) { 60.dp.toPx() } 
+        val bottomAreaHeight = with(density) { 50.dp.toPx() } 
         val topAreaHeight = with(density) { 20.dp.toPx() }
         val rightAreaWidth = with(density) { 20.dp.toPx() }
 
-        // El área real donde se dibujará la línea
         val graphWidth = size.width - leftAreaWidth - rightAreaWidth
         val graphHeight = size.height - topAreaHeight - bottomAreaHeight
 
         if (values.isEmpty() || graphWidth <= 0 || graphHeight <= 0) return@Canvas
 
-        // 2. ESCALADO DE DATOS (Añadimos márgenes para que la línea no toque los bordes)
         val rawMaxY = values.maxOrNull() ?: 1f
         val rawMinY = values.minOrNull() ?: 0f
-        val yBuffer = (rawMaxY - rawMinY) * 0.15f // 15% de buffer arriba y abajo
-        val minY = Math.max(0f, rawMinY - yBuffer) // No bajamos de 0 emisiones
+        val yBuffer = (rawMaxY - rawMinY) * 0.15f
+        val minY = Math.max(0f, rawMinY - yBuffer)
         val maxY = rawMaxY + yBuffer
         val yRange = if (maxY == minY) 1f else maxY - minY
 
-        val spaceX = graphWidth / (values.size - 1)
+        val spaceX = if (values.size > 1) graphWidth / (values.size - 1) else 0f
 
-        // --- 3. DIBUJAR EJES Y CUADRÍCULA HORMIGONAL ---
-
-        // Eje Y (Línea vertical izquierda)
         drawLine(
             color = axisColor,
             start = Offset(leftAreaWidth, topAreaHeight),
             end = Offset(leftAreaWidth, topAreaHeight + graphHeight),
             strokeWidth = 2f
         )
-        // Eje X (Línea horizontal inferior)
         drawLine(
             color = axisColor,
             start = Offset(leftAreaWidth, topAreaHeight + graphHeight),
@@ -577,15 +726,12 @@ fun ProfessionalPredictionChart(values: List<Float>) {
             strokeWidth = 2f
         )
 
-        // Cuadrícula Horizontal y Etiquetas del Eje Y
-        val gridLines = 5 // Número de líneas horizontales de referencia
+        val gridLines = 5
         for (i in 0..gridLines) {
             val ratio = i.toFloat() / gridLines
-            // Calculamos la Y invertida (Canvas dibuja de arriba a abajo)
             val yLabelCoord = topAreaHeight + graphHeight - (ratio * graphHeight)
 
-            // Dibujar línea de cuadrícula (punteada)
-            if (i > 0) { // No dibujamos sobre el eje X
+            if (i > 0) {
                 drawLine(
                     color = gridColor,
                     start = Offset(leftAreaWidth, yLabelCoord),
@@ -595,7 +741,6 @@ fun ProfessionalPredictionChart(values: List<Float>) {
                 )
             }
 
-            // Etiqueta de valor (Emisiones)
             val value = minY + (ratio * yRange)
             val labelText = String.format(Locale.US, "%.1f", value)
             val textLayoutResult = textMeasurer.measure(AnnotatedString(labelText), style = labelTextStyle)
@@ -603,19 +748,16 @@ fun ProfessionalPredictionChart(values: List<Float>) {
             drawText(
                 textLayoutResult = textLayoutResult,
                 topLeft = Offset(
-                    x = leftAreaWidth - textLayoutResult.size.width - 8f, // 8px de separación
-                    y = yLabelCoord - textLayoutResult.size.height / 2 // Centrado vertical
+                    x = leftAreaWidth - textLayoutResult.size.width - 8f,
+                    y = yLabelCoord - textLayoutResult.size.height / 2
                 )
             )
         }
 
-        // --- 4. DIBUJAR ETIQUETAS DEL EJE X (HORAS) ---
-        // Mostramos etiquetas cada 4 horas para no saturar (0, 4, 8... 23)
         for (index in values.indices) {
             if (index % 4 == 0 || index == values.size - 1) {
                 val xLabelCoord = leftAreaWidth + index * spaceX
                 
-                // Dibujar pequeña marca (tick) en el eje
                 drawLine(
                     color = axisColor,
                     start = Offset(xLabelCoord, topAreaHeight + graphHeight),
@@ -623,41 +765,33 @@ fun ProfessionalPredictionChart(values: List<Float>) {
                     strokeWidth = 2f
                 )
 
-                // Etiqueta de la hora
                 val hourLabel = String.format(Locale.US, "%02dh", index)
                 val textLayoutResult = textMeasurer.measure(AnnotatedString(hourLabel), style = labelTextStyle)
 
                 drawText(
                     textLayoutResult = textLayoutResult,
                     topLeft = Offset(
-                        x = xLabelCoord - textLayoutResult.size.width / 2, // Centrado horizontal
-                        y = topAreaHeight + graphHeight + 8f // Abajo del eje
+                        x = xLabelCoord - textLayoutResult.size.width / 2,
+                        y = topAreaHeight + graphHeight + 8f
                     )
                 )
             }
         }
 
-        // --- 5. DIBUJAR TÍTULOS DE LOS EJES ---
-        
-        // Título Eje X
         val xTitleLayout = textMeasurer.measure(AnnotatedString("Day Time"), style = titleTextStyle)
         drawText(
             textLayoutResult = xTitleLayout,
             topLeft = Offset(
                 x = leftAreaWidth + graphWidth / 2 - xTitleLayout.size.width / 2,
-                y = size.height - xTitleLayout.size.height // Al final de la vista
+                y = size.height - xTitleLayout.size.height
             )
         )
 
-        // Título Eje Y (Rotado)
         val yTitleLayout = textMeasurer.measure(AnnotatedString("gCO2eq / kWh"), style = titleTextStyle)
-        // Para rotar texto en Canvas hay que usar el Canvas nativo de Android
         drawContext.canvas.nativeCanvas.apply {
             save()
-            // Rotamos -90 grados alrededor del punto donde queremos el texto
             rotate(-90f, 15f, topAreaHeight + graphHeight / 2)
             
-            // Dibujamos usando coordenadas relativas al punto de rotación
             drawText(
                 yTitleLayout,
                 topLeft = Offset(
@@ -668,13 +802,10 @@ fun ProfessionalPredictionChart(values: List<Float>) {
             restore()
         }
 
-
-        // --- 6. DIBUJAR LA LÍNEA DE DATOS Y PUNTOS ---
-        
         val path = Path()
-        val filledPath = Path() // Para el degradado de fondo (opcional)
+        val filledPath = Path()
         
-        filledPath.moveTo(leftAreaWidth, topAreaHeight + graphHeight) // Esquina inferior izquierda
+        filledPath.moveTo(leftAreaWidth, topAreaHeight + graphHeight)
 
         values.forEachIndexed { index, value ->
             val x = leftAreaWidth + index * spaceX
@@ -689,16 +820,13 @@ fun ProfessionalPredictionChart(values: List<Float>) {
                 filledPath.lineTo(x, y)
             }
 
-            // Dibujar punto
             drawCircle(color = lineColor, radius = 5f, center = Offset(x, y))
-            // Punto interior blanco para efecto "hueco" profesional
             drawCircle(color = Color.White, radius = 3f, center = Offset(x, y))
         }
         
-        filledPath.lineTo(leftAreaWidth + graphWidth, topAreaHeight + graphHeight) // Esquina inferior derecha
+        filledPath.lineTo(leftAreaWidth + graphWidth, topAreaHeight + graphHeight)
         filledPath.close()
 
-        // Dibujar relleno degradado (da mucha calidad visual)
         drawPath(
             path = filledPath,
             brush = androidx.compose.ui.graphics.Brush.verticalGradient(
@@ -708,14 +836,13 @@ fun ProfessionalPredictionChart(values: List<Float>) {
             )
         )
 
-        // Dibujar la línea principal
         drawPath(
             path = path,
             color = lineColor,
-            style = androidx.compose.ui.graphics.drawscope.Stroke(
+            style = Stroke(
                 width = 6f,
-                cap = androidx.compose.ui.graphics.StrokeCap.Round,
-                join = androidx.compose.ui.graphics.StrokeJoin.Round
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
             )
         )
     }

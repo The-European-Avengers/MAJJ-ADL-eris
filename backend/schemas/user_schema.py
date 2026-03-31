@@ -1,3 +1,5 @@
+from datetime import datetime
+from typing import Optional
 from pydantic import BaseModel
 
 
@@ -23,4 +25,21 @@ class UserCreatedResponseSchema(BaseModel):
     name: str 
     username: str
     email: str  
-    is_active: bool  
+    is_active: bool
+    current_streak: int
+    longest_streak: int
+    total_score: float
+    last_prediction_date: Optional[datetime] = None  
+
+    class Config:
+        from_attributes = True
+
+
+# Esquema ligero específico para el leaderboard
+class LeaderboardEntry(BaseModel):
+    username: str
+    current_streak: int
+    total_score: float
+
+    class Config:
+        from_attributes = True
