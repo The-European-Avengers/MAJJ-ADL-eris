@@ -69,6 +69,13 @@ A Python-based RESTful API for managing tasks with secure authentication and dat
    
    
 4. **Run Migrations**:
+
+   If alembic version folder is deleted:
+   ```bash
+   alembic revision --autogenerate -m "Initial migration"   
+   ```
+   then
+   
    ```bash
    alembic upgrade head
    ```

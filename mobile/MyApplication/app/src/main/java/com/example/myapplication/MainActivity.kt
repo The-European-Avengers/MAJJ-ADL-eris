@@ -1,11 +1,16 @@
 package com.example.myapplication
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
@@ -43,6 +48,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -51,8 +57,10 @@ import androidx.navigation.navArgument
 import com.example.myapplication.data.api.RetrofitClient
 import com.example.myapplication.data.local.TokenManager
 import com.example.myapplication.data.model.RegisterRequest
-import com.example.myapplication.data.model.LeaderboardEntry // Asegúrate de tener esto en tus AuthModels
+import com.example.myapplication.data.model.LeaderboardEntry
 import com.example.myapplication.ui.theme.MyApplicationTheme
+import com.example.myapplication.utils.ChargingDetector
+import com.example.myapplication.utils.NotificationHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -145,6 +153,7 @@ fun WelcomeScreen(onNavigateToLogin: () -> Unit, onNavigateToRegister: () -> Uni
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
     ) {
+        @Suppress("DEPRECATION")
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -419,6 +428,39 @@ fun HomeScreen(
     val tokenManager = remember { TokenManager(context) }
     val authToken = tokenManager.getToken()?.let { "Bearer $it" } ?: ""
 
+    // Notificaciones y Permisos
+    val notificationHelper = remember { NotificationHelper(context) }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (!isGranted) {
+            Toast.makeText(context, "Permission denied for notifications", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Pedir permiso al entrar si es Android 13+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
+    // Detector de carga
+    val chargingDetector = remember { ChargingDetector(context) }
+    val isCharging by chargingDetector.observeChargingState().collectAsState(initial = chargingDetector.isCurrentlyCharging())
+
+    // Efecto para lanzar notificación cuando se conecta el cargador
+    LaunchedEffect(isCharging) {
+        if (isCharging) {
+            notificationHelper.showNotification(
+                "¡Charger detected!",
+                "You've plugged in your device. Is it a good time to charge it?"
+            )
+        }
+    }
+
     var predictionValues by remember { mutableStateOf<List<Float>>(emptyList()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isPredicting by remember { mutableStateOf(true) }
@@ -495,6 +537,15 @@ fun HomeScreen(
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
+            )
+
+            // Mostrar estado de carga
+            Text(
+                text = if (isCharging) "🔌 Charger connected" else "🔋 Battery (Disconnected)",
+                fontSize = 16.sp,
+                color = if (isCharging) Color(0xFF4CAF50) else Color.Gray,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 8.dp)
             )
 
             Spacer(modifier = Modifier.height(24.dp))
