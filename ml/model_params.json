@@ -1,0 +1,14 @@
+{
+    "window_size": 24,
+    "forecast_horizon": 24,
+    "learning_rate": 0.001,
+    "epochs": 50,
+    "batch_size": 32,
+    "features": [
+        "Carbon intensity gCO\u2082eq/kWh (direct)",
+        "hour_sin",
+        "hour_cos",
+        "year_sin",
+        "year_cos"
+    ]
+}
