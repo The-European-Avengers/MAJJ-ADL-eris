@@ -1,16 +1,11 @@
 package com.example.myapplication
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
@@ -48,7 +43,6 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -83,6 +77,7 @@ fun AppNavigation() {
     val navController = rememberNavController()
     val context = LocalContext.current
     val tokenManager = remember { TokenManager(context) }
+    NotificationPermissionRequester()
     
     // Si ya hay un token, empezamos en Home
     val startDestination = if (tokenManager.getToken() != null) "home" else "welcome"
@@ -144,6 +139,18 @@ fun AppNavigation() {
                 }
             )
         }
+    }
+}
+
+@Composable
+fun NotificationPermissionRequester() {
+    val context = LocalContext.current
+    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { }
+
+    LaunchedEffect(Unit) {
+        NotificationHelper.requestPermissionIfNeeded(context, permissionLauncher)
     }
 }
 
@@ -428,32 +435,20 @@ fun HomeScreen(
     val tokenManager = remember { TokenManager(context) }
     val authToken = tokenManager.getToken()?.let { "Bearer $it" } ?: ""
 
-    // Notificaciones y Permisos
+    // Notificaciones
     val notificationHelper = remember { NotificationHelper(context) }
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (!isGranted) {
-            Toast.makeText(context, "Permission denied for notifications", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    // Pedir permiso al entrar si es Android 13+
-    LaunchedEffect(Unit) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
-    }
 
     // Detector de carga
     val chargingDetector = remember { ChargingDetector(context) }
     val isCharging by chargingDetector.observeChargingState().collectAsState(initial = chargingDetector.isCurrentlyCharging())
+    var previousChargingState by remember { mutableStateOf<Boolean?>(null) }
 
-    // Efecto para lanzar notificación cuando se conecta el cargador
+    // Solo notificamos cuando hay una transicion real de desconectado a conectado.
     LaunchedEffect(isCharging) {
-        if (isCharging) {
+        val wasCharging = previousChargingState
+        previousChargingState = isCharging
+
+        if (wasCharging == false && isCharging) {
             notificationHelper.showNotification(
                 "¡Charger detected!",
                 "You've plugged in your device. Is it a good time to charge it?"

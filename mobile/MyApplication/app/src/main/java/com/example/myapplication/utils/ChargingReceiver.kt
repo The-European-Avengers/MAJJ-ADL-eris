@@ -7,10 +7,11 @@ import android.util.Log
 
 class ChargingReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == Intent.ACTION_POWER_CONNECTED) {
+        val action = intent.action ?: return
+
+        if (action == Intent.ACTION_POWER_CONNECTED) {
             Log.d("ChargingReceiver", "Power connected detected globally")
-            val notificationHelper = NotificationHelper(context)
-            notificationHelper.showNotification(
+            NotificationHelper(context.applicationContext).showNotification(
                 "¡Charger detected!",
                 "You've plugged in your device. Is it a good time to charge it?"
             )
