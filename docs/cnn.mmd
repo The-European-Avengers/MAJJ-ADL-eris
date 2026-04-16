@@ -1,0 +1,64 @@
+graph TD
+    A["Load & Preprocess Data
+    emissions-data/*.csv
+    Extracts hourly carbon intensity from CSV files 2021-2025"]
+
+    A --> B["Engineer Features
+    Creates cyclical features: hour_sin/cos dayofyear_sin/cos
+    Captures daily cycles and seasonal patterns"]
+
+    B --> C["Normalize Data
+    StandardScaler
+    Prevents large values from dominating learning"]
+
+    C --> D["Create Time Windows
+    Input: 24h historical data
+    Output: 24h forecast target
+    Sliding window across time series"]
+
+    D --> E["CNN Model"]
+
+    E --> F["Conv1D 64 filters → Conv1D 32 filters
+    Detects 3-hour patterns and combines them
+    Flatten → Dense 128 → Dense 64
+    Learns complex relationships with Dropout 30%
+    Output 24 neurons for 24-hour forecast"]
+
+    F --> G["Train & Save
+    Optimizer: Adam LR=0.001
+    Loss: MSE, 50 epochs, batch_size=32"]
+
+    G --> H["carbon_model_cnn_v3.tflite
+    Lightweight model ~2-5MB
+    Runs on mobile and edge devices"]
+    G --> I["scaler_params_cnn_v3.json
+    Saves mean and scale for
+    denormalizing predictions"]
+    G --> J["model_params.json
+    Config: window_size=24
+    forecast_horizon=24, features list"]
+
+    H --> K["Deploy Model
+    Step 1: Collect last 24h data
+    Step 2: Normalize using scaler params"]
+    I --> K
+
+    K --> L["Normalize Input Data
+    Last 24h hourly values
+    Apply mean and scale from JSON"]
+
+    L --> M["TFLite Inference
+    Run model on normalized input
+    Get 24 scaled predictions"]
+
+    M --> N["Denormalize Output
+    Using target_scaler params
+    Convert -3 to +3 back to real values"]
+
+    N --> O["Carbon Intensity Forecast
+    gCO₂eq/kWh for next 24 hours"]
+
+    style A fill:#e1f5ff
+    style E fill:#f3e5f5
+    style H fill:#fff3e0
+    style O fill:#c8e6c9
