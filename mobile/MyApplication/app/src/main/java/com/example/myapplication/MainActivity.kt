@@ -55,6 +55,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.myapplication.data.api.RetrofitClient
+import com.example.myapplication.data.local.CarbonDataRepository
 import com.example.myapplication.data.local.TokenManager
 import com.example.myapplication.data.model.RegisterRequest
 import com.example.myapplication.data.model.LeaderboardEntry
@@ -64,6 +65,9 @@ import com.example.myapplication.utils.NotificationHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
@@ -83,6 +87,12 @@ fun AppNavigation() {
     val navController = rememberNavController()
     val context = LocalContext.current
     val tokenManager = remember { TokenManager(context) }
+    val carbonDataRepository = remember { CarbonDataRepository(context) }
+
+    LaunchedEffect(Unit) {
+        val updated = carbonDataRepository.refreshCacheFromPublicApi()
+        Log.d("AppNavigation", "Startup carbon cache refresh: $updated")
+    }
     
     // Si ya hay un token, empezamos en Home
     val startDestination = if (tokenManager.getToken() != null) "home" else "welcome"
@@ -424,6 +434,7 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val predictor = remember { CarbonModelPredictor(context) }
+    val carbonDataRepository = remember { CarbonDataRepository(context) }
     val coroutineScope = rememberCoroutineScope()
     val tokenManager = remember { TokenManager(context) }
     val authToken = tokenManager.getToken()?.let { "Bearer $it" } ?: ""
@@ -465,6 +476,8 @@ fun HomeScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isPredicting by remember { mutableStateOf(true) }
     var isSubmitting by remember { mutableStateOf(false) }
+    var cacheInfoText by remember { mutableStateOf("Cache: loading...") }
+    var isRefreshingCache by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
         onDispose { predictor.close() }
@@ -478,19 +491,50 @@ fun HomeScreen(
         }
         try {
             val result = withContext(Dispatchers.IO) {
-                val inputStream = context.assets.open("DK-2025-hourly.csv")
-                val csvContent = inputStream.bufferedReader().use { it.readText() }
                 val processor = FeatureProcessor()
-                val records = processor.parseCsvToRecords(csvContent)
+                var dataSource = "cache"
+                var records = carbonDataRepository.getCachedRecords()
+
+                if (records.size < 360) {
+                    dataSource = "cache-refresh"
+                    carbonDataRepository.refreshCacheFromPublicApi(daysBack = 20)
+                    records = carbonDataRepository.getCachedRecords()
+                }
+
+                if (records.size < 360) {
+                    dataSource = "asset-fallback"
+                    val fallbackCsv = context.assets.open("DK-2025-hourly.csv")
+                        .bufferedReader()
+                        .use { it.readText() }
+                    records = processor.parseCsvToRecords(fallbackCsv)
+                }
+
+                val diagnostics = carbonDataRepository.getCacheDiagnostics()
+                val refreshText = if (diagnostics.lastRefreshMs > 0L) {
+                    val localDateTime = Instant.ofEpochMilli(diagnostics.lastRefreshMs)
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalDateTime()
+                    localDateTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+                } else {
+                    "never"
+                }
+
+                val cacheInfo = "Source: $dataSource | Rows: ${diagnostics.recordCount} | Gap(h): ${diagnostics.largestGapHours} | Last sync: $refreshText"
+                Log.d(
+                    "CACHE_DEBUG",
+                    "source=$dataSource rows=${diagnostics.recordCount} first=${diagnostics.firstTimestamp} last=${diagnostics.lastTimestamp} gap=${diagnostics.largestGapHours}h avg=${diagnostics.avgCarbonIntensity} min=${diagnostics.minCarbonIntensity} max=${diagnostics.maxCarbonIntensity}"
+                )
+
                 val inputTensor = processor.processData(records)
 
                 if (inputTensor != null) {
-                    predictor.predict(inputTensor)
+                    Pair(predictor.predict(inputTensor), cacheInfo)
                 } else {
                     throw Exception("El historial es demasiado corto. Se requieren al menos 360 horas de datos.")
                 }
             }
-            predictionValues = result.toList()
+            predictionValues = result.first.toList()
+            cacheInfoText = result.second
         } catch (e: Exception) {
             errorMessage = "Error: ${e.message}"
             Log.e("ML_Error", "Fallo durante el procesamiento o predicción", e)
@@ -547,6 +591,51 @@ fun HomeScreen(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(top = 8.dp)
             )
+
+            Text(
+                text = cacheInfoText,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+
+            Button(
+                onClick = {
+                    isRefreshingCache = true
+                    coroutineScope.launch {
+                        try {
+                            val success = carbonDataRepository.refreshCacheFromPublicApi(daysBack = 20)
+                            if (success) {
+                                Toast.makeText(context, "Cache refreshed!", Toast.LENGTH_SHORT).show()
+                                val diagnostics = carbonDataRepository.getCacheDiagnostics()
+                                val refreshText = if (diagnostics.lastRefreshMs > 0L) {
+                                    Instant.ofEpochMilli(diagnostics.lastRefreshMs)
+                                        .atZone(ZoneId.systemDefault())
+                                        .toLocalDateTime()
+                                        .format(DateTimeFormatter.ofPattern("HH:mm"))
+                                } else {
+                                    "?"
+                                }
+                                cacheInfoText = "✓ Cache: ${diagnostics.recordCount} rows | Gap: ${diagnostics.largestGapHours}h | Sync: $refreshText"
+                            } else {
+                                Toast.makeText(context, "Cache refresh failed - check logs", Toast.LENGTH_LONG).show()
+                            }
+                        } finally {
+                            isRefreshingCache = false
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(40.dp),
+                enabled = !isRefreshingCache && !isPredicting,
+                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF4CAF50))
+            ) {
+                if (isRefreshingCache) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                } else {
+                    Text("🔄 Refresh Data", fontSize = 14.sp)
+                }
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
 
