@@ -10,8 +10,7 @@ services:
     ports:
       - '5435:5432'
     volumes:
-      
-      - ./postgres_data:/var/lib/postgresql/data
+    - ./postgres_data:/var/lib/postgresql/data
 
   app:
     container_name: eris_app
