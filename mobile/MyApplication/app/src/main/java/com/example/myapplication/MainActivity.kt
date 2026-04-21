@@ -474,7 +474,12 @@ fun HomeScreen(
                 val inputTensor = processor.processData(records)
                     ?: throw Exception("El historial es demasiado corto. Se requieren al menos 360 horas de datos.")
 
-                Pair(predictor.predict(inputTensor), cacheInfo)
+                val inferenceStartMs = System.currentTimeMillis()
+                val predictions = predictor.predict(inputTensor)
+                val inferenceMs = System.currentTimeMillis() - inferenceStartMs
+                Log.d("ML_INFERENCE", "Inference time: ${inferenceMs}ms (${inferenceMs / 1000.0}s)")
+ 
+                Pair(predictions, cacheInfo)
             }
             predictionValues  = result.first.toList()
             chargingAnalysis  = analyseChargingWindow(predictionValues)
