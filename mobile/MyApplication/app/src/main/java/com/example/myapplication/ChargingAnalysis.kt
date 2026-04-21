@@ -47,6 +47,115 @@ private const val CHARGER_EFFICIENCY = 0.87f
 private val GRID_ENERGY_KWH = PHONE_CHARGE_KWH / CHARGER_EFFICIENCY   // ≈ 0.00886 kWh
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Charging session model
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Represents one completed charging session with its measured emission.
+ *
+ * @param plugInTime        Epoch millis when the charger was connected.
+ * @param plugOutTime       Epoch millis when the charger was disconnected.
+ * @param durationMinutes   Total charging time in minutes.
+ * @param totalCarbonGrams  Total gCO₂eq emitted during the session.
+ * @param avgIntensity      Weighted average grid intensity during the session (gCO₂eq/kWh).
+ * @param energyDrawnWh     Total energy drawn from the grid (Wh).
+ */
+data class ChargingSession(
+    val plugInTime: Long,
+    val plugOutTime: Long,
+    val durationMinutes: Int,
+    val totalCarbonGrams: Float,
+    val avgIntensity: Float,
+    val energyDrawnWh: Float
+)
+
+/**
+ * Calculates the carbon emitted during a real charging session.
+ *
+ * Strategy: the phone draws power at a roughly constant rate. We know the
+ * charger efficiency and max battery capacity. For each hour (or fraction)
+ * that the session overlaps, we use the corresponding predicted intensity.
+ *
+ * [predictionValues] has 24 entries where index 0 = the hour in which
+ * [predictionStartHour] falls (i.e. the current hour when the model ran).
+ *
+ * @param plugInMs              System.currentTimeMillis() at plug-in.
+ * @param plugOutMs             System.currentTimeMillis() at plug-out.
+ * @param predictionValues      24-hour intensity forecast (gCO₂eq/kWh).
+ * @param predictionStartHour   Wall-clock hour (0–23) of prediction index 0.
+ */
+fun calculateSessionEmission(
+    plugInMs: Long,
+    plugOutMs: Long,
+    predictionValues: List<Float>,
+    predictionStartHour: Int
+): ChargingSession? {
+    if (predictionValues.isEmpty() || plugOutMs <= plugInMs) return null
+
+    val durationMs      = plugOutMs - plugInMs
+    val durationMinutes = (durationMs / 60_000L).toInt().coerceAtLeast(1)
+    val durationHours   = durationMs / 3_600_000.0   // fractional hours
+
+    // Power draw (W): energy stored ÷ time. We use full-battery capacity (15.4 Wh)
+    // as the denominator assuming up to 2 h for a full charge.
+    // Charger input power = battery power ÷ efficiency.
+    // For a real session we distribute energy proportionally to time.
+    // Total grid energy = constant rate × total duration
+    val gridEnergyKwh = (PHONE_CHARGE_KWH / CHARGER_EFFICIENCY) *
+            (durationHours / 1.0).toFloat()   // scale by actual session fraction vs 30-min base
+    val gridEnergyWh  = gridEnergyKwh * 1000f
+
+    // Break the session into per-hour slices and weight each slice's intensity
+    // by what fraction of total time falls in that hour.
+    var weightedIntensitySum = 0.0
+    var totalWeight          = 0.0
+
+    val plugInHour  = java.time.Instant.ofEpochMilli(plugInMs)
+        .atZone(java.time.ZoneId.systemDefault()).hour
+    val plugInMin   = java.time.Instant.ofEpochMilli(plugInMs)
+        .atZone(java.time.ZoneId.systemDefault()).minute
+
+    // Walk through each hour slot the session touches
+    var remainingMs = durationMs
+    var slotStart   = plugInMs
+
+    while (remainingMs > 0) {
+        val slotInstant  = java.time.Instant.ofEpochMilli(slotStart)
+            .atZone(java.time.ZoneId.systemDefault())
+        val slotHour     = slotInstant.hour
+        // How many ms until the end of this clock-hour?
+        val msUntilNextHour = ((60 - slotInstant.minute) * 60_000L) -
+                              (slotInstant.second * 1000L)
+        val slotMs       = minOf(remainingMs, msUntilNextHour).coerceAtLeast(1L)
+
+        // Map wall-clock hour → prediction index
+        val hourOffset   = ((slotHour - predictionStartHour + 24) % 24)
+        val intensity    = if (hourOffset < predictionValues.size)
+            predictionValues[hourOffset].toDouble()
+        else
+            predictionValues.last().toDouble()   // clamp to last known value
+
+        weightedIntensitySum += intensity * slotMs
+        totalWeight          += slotMs
+
+        remainingMs -= slotMs
+        slotStart   += slotMs
+    }
+
+    val avgIntensity      = if (totalWeight > 0) (weightedIntensitySum / totalWeight).toFloat() else 0f
+    val totalCarbonGrams  = gridEnergyKwh * avgIntensity
+
+    return ChargingSession(
+        plugInTime       = plugInMs,
+        plugOutTime      = plugOutMs,
+        durationMinutes  = durationMinutes,
+        totalCarbonGrams = totalCarbonGrams,
+        avgIntensity     = avgIntensity,
+        energyDrawnWh    = gridEnergyWh
+    )
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Core analysis function
 // ──────────────────────────────────────────────────────────────────────────────
 

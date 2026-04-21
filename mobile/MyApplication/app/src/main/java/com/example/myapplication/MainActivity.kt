@@ -64,7 +64,29 @@ import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.LocalTime
 import java.util.Locale
+
+/**
+ * Decodes the `sub` (subject) claim from a JWT token without any external library.
+ * A JWT is three base64url segments separated by '.'. The middle segment is the payload.
+ */
+fun decodeUsernameFromJwt(token: String): String? {
+    return try {
+        val payload = token.split(".").getOrNull(1) ?: return null
+        val padded = payload
+            .replace('-', '+')
+            .replace('_', '/')
+            .let { it + "=".repeat((4 - it.length % 4) % 4) }
+        val decoded = android.util.Base64.decode(padded, android.util.Base64.DEFAULT)
+        val json = String(decoded, Charsets.UTF_8)
+        // Try "username" claim first (new tokens), ignore "sub" (it's the user ID)
+        val usernameRegex = Regex(""""username"\s*:\s*"([^"]+)"""")
+        usernameRegex.find(json)?.groupValues?.getOrNull(1)
+    } catch (e: Exception) {
+        null
+    }
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -361,6 +383,11 @@ fun HomeScreen(
     val coroutineScope = rememberCoroutineScope()
     val tokenManager = remember { TokenManager(context) }
     val authToken = tokenManager.getToken()?.let { "Bearer $it" } ?: ""
+    val username = remember {
+    tokenManager.getToken()?.let { decodeUsernameFromJwt(it) }
+        ?: tokenManager.getUsername()  // saved at login time from the form field
+        ?: "User"
+}
 
     val notificationHelper = remember { NotificationHelper(context) }
     val chargingDetector = remember { ChargingDetector(context) }
@@ -368,24 +395,45 @@ fun HomeScreen(
         .collectAsState(initial = chargingDetector.isCurrentlyCharging())
     var previousChargingState by remember { mutableStateOf<Boolean?>(null) }
 
+    var predictionValues  by remember { mutableStateOf<List<Float>>(emptyList()) }
+    var chargingAnalysis  by remember { mutableStateOf<ChargingAnalysis?>(null) }
+    var errorMessage      by remember { mutableStateOf<String?>(null) }
+    var isPredicting      by remember { mutableStateOf(true) }
+    var isSubmitting      by remember { mutableStateOf(false) }
+    var cacheInfoText     by remember { mutableStateOf("Cache: loading...") }
+    var isRefreshingCache by remember { mutableStateOf(false) }
+
+    // Timestamps for real-session emission calculation
+    var plugInTimeMs      by remember { mutableStateOf<Long?>(null) }
+    var predictionHourRef by remember { mutableStateOf(LocalTime.now().hour) }
+    var lastSession       by remember { mutableStateOf<ChargingSession?>(null) }
+
     LaunchedEffect(isCharging) {
         val wasCharging = previousChargingState
         previousChargingState = isCharging
+
         if (wasCharging == false && isCharging) {
+            plugInTimeMs      = System.currentTimeMillis()
+            predictionHourRef = LocalTime.now().hour
             notificationHelper.showNotification(
                 "¡Charger detected!",
                 "You've plugged in your device. Is it a good time to charge it?"
             )
         }
-    }
 
-    var predictionValues by remember { mutableStateOf<List<Float>>(emptyList()) }
-    var chargingAnalysis by remember { mutableStateOf<ChargingAnalysis?>(null) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var isPredicting by remember { mutableStateOf(true) }
-    var isSubmitting by remember { mutableStateOf(false) }
-    var cacheInfoText by remember { mutableStateOf("Cache: loading...") }
-    var isRefreshingCache by remember { mutableStateOf(false) }
+        if (wasCharging == true && !isCharging) {
+            val plugIn = plugInTimeMs
+            if (plugIn != null && predictionValues.isNotEmpty()) {
+                lastSession = calculateSessionEmission(
+                    plugInMs            = plugIn,
+                    plugOutMs           = System.currentTimeMillis(),
+                    predictionValues    = predictionValues,
+                    predictionStartHour = predictionHourRef
+                )
+            }
+            plugInTimeMs = null
+        }
+    }
 
     DisposableEffect(Unit) { onDispose { predictor.close() } }
 
@@ -475,7 +523,7 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "Welcome User!",
+                text = "Welcome, $username!",
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
@@ -539,7 +587,7 @@ fun HomeScreen(
                     .fillMaxWidth()
                     .height(260.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(12.dp),
                 border = androidx.compose.foundation.BorderStroke(
                     1.dp, Color.LightGray.copy(alpha = 0.5f)
                 )
@@ -555,7 +603,10 @@ fun HomeScreen(
                             textAlign = TextAlign.Center
                         )
                     }
-                    predictionValues.isNotEmpty() -> ProfessionalPredictionChart(values = predictionValues)
+                    predictionValues.isNotEmpty() -> ProfessionalPredictionChart(
+                        values      = predictionValues,
+                        startHour   = (LocalTime.now().hour + 1) % 24
+                    )
                 }
             }
 
@@ -565,6 +616,14 @@ fun HomeScreen(
                 enter = fadeIn() + expandVertically()
             ) {
                 chargingAnalysis?.let { ChargingInsightCard(it) }
+            }
+
+            // Last session emission card — appears after unplugging
+            AnimatedVisibility(
+                visible = !isCharging && lastSession != null,
+                enter = fadeIn() + expandVertically()
+            ) {
+                lastSession?.let { ChargingSessionCard(it) }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -691,7 +750,7 @@ fun RewardScreen(
 // ─────────────────────────────────────────────────────────────────────────────
 @OptIn(ExperimentalTextApi::class)
 @Composable
-fun ProfessionalPredictionChart(values: List<Float>) {
+fun ProfessionalPredictionChart(values: List<Float>, startHour: Int = 0) {
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
 
@@ -701,11 +760,11 @@ fun ProfessionalPredictionChart(values: List<Float>) {
     val labelTextStyle = TextStyle(color = axisColor.copy(alpha = 0.8f), fontSize = 10.sp)
     val titleTextStyle = TextStyle(color = axisColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
 
-    Canvas(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        val leftAreaWidth   = with(density) { 60.dp.toPx() }
-        val bottomAreaHeight = with(density) { 50.dp.toPx() }
-        val topAreaHeight   = with(density) { 20.dp.toPx() }
-        val rightAreaWidth  = with(density) { 20.dp.toPx() }
+    Canvas(modifier = Modifier.fillMaxSize().padding(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 4.dp)) {
+        val leftAreaWidth    = with(density) { 48.dp.toPx() }
+        val bottomAreaHeight = with(density) { 36.dp.toPx() }
+        val topAreaHeight    = with(density) { 12.dp.toPx() }
+        val rightAreaWidth   = with(density) { 8.dp.toPx() }
 
         val graphWidth  = size.width  - leftAreaWidth - rightAreaWidth
         val graphHeight = size.height - topAreaHeight - bottomAreaHeight
@@ -720,9 +779,11 @@ fun ProfessionalPredictionChart(values: List<Float>) {
         val yRange = if (maxY == minY) 1f else maxY - minY
         val spaceX = if (values.size > 1) graphWidth / (values.size - 1) else 0f
 
+        // Axes
         drawLine(axisColor, Offset(leftAreaWidth, topAreaHeight), Offset(leftAreaWidth, topAreaHeight + graphHeight), 2f)
         drawLine(axisColor, Offset(leftAreaWidth, topAreaHeight + graphHeight), Offset(leftAreaWidth + graphWidth, topAreaHeight + graphHeight), 2f)
 
+        // Y-axis grid + labels
         for (i in 0..5) {
             val ratio = i.toFloat() / 5
             val yCoord = topAreaHeight + graphHeight - (ratio * graphHeight)
@@ -734,18 +795,22 @@ fun ProfessionalPredictionChart(values: List<Float>) {
             drawText(label, topLeft = Offset(leftAreaWidth - label.size.width - 8f, yCoord - label.size.height / 2))
         }
 
+        // X-axis labels — real clock times every 2 hours, wrapping midnight
         for (index in values.indices) {
-            if (index % 4 == 0 || index == values.size - 1) {
+            if (index % 2 == 0 || index == values.size - 1) {
                 val xCoord = leftAreaWidth + index * spaceX
                 drawLine(axisColor, Offset(xCoord, topAreaHeight + graphHeight), Offset(xCoord, topAreaHeight + graphHeight + 5f), 2f)
-                val label = textMeasurer.measure(AnnotatedString(String.format(Locale.US, "%02dh", index)), style = labelTextStyle)
+                val clockHour = (startHour + index) % 24
+                val label = textMeasurer.measure(AnnotatedString(String.format(Locale.US, "%02d", clockHour)), style = labelTextStyle)
                 drawText(label, topLeft = Offset(xCoord - label.size.width / 2, topAreaHeight + graphHeight + 8f))
             }
         }
 
-        val xTitle = textMeasurer.measure(AnnotatedString("Day Time"), style = titleTextStyle)
+        // X title
+        val xTitle = textMeasurer.measure(AnnotatedString("Time of Day"), style = titleTextStyle)
         drawText(xTitle, topLeft = Offset(leftAreaWidth + graphWidth / 2 - xTitle.size.width / 2, size.height - xTitle.size.height))
 
+        // Y title (rotated)
         val yTitle = textMeasurer.measure(AnnotatedString("gCO2eq / kWh"), style = titleTextStyle)
         drawContext.canvas.nativeCanvas.apply {
             save()
@@ -754,6 +819,7 @@ fun ProfessionalPredictionChart(values: List<Float>) {
             restore()
         }
 
+        // Line + fill
         val path = Path()
         val filledPath = Path().also { it.moveTo(leftAreaWidth, topAreaHeight + graphHeight) }
 
