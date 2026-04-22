@@ -11,12 +11,9 @@ origins = [
     "http://localhost:8080",
 ]
 
-from core.database import engine # Ajusta la ruta a donde tengas tu 'engine'
-from models.base import Base     # Importa la Base
-import models                    # Importa el __init__ para que registre User y Task
-
-
+# Esto creará las tablas físicamente en Render
 Base.metadata.create_all(bind=engine)
+
 
 app = FastAPI()
 
