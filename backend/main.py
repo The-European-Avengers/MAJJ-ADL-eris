@@ -19,7 +19,7 @@ app = FastAPI()
 
 def configure_app():
     app = FastAPI()
-    app.title = "Qpurpose API"
+    app.title = "ERIS API"
     app.version = "1.0.0"
     return app
 
