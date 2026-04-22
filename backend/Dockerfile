@@ -16,4 +16,4 @@ RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 
 COPY . /code
 
-CMD ["sh", "-c", "alembic upgrade head && fastapi run main.py --port 80 --host 0.0.0.0"]
+CMD ["fastapi", "run", "main.py", "--port", "80", "--host", "0.0.0.0"]
