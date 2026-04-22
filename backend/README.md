@@ -1,11 +1,11 @@
 # eris API
 
-A Python-based RESTful API for managing tasks with secure authentication and database integration.
+A Python-based RESTful API for managing users with secure authentication and database integration.
 
 ## Features
 
 - **User Management**: Registration and JWT-based authentication.
-- **Task Management**: CRUD operations for tasks (Create, Read, Update, Delete).
+
 - **Security**: Password hashing and OAuth2 with JWT tokens.
 - **Database**: PostgreSQL integration using SQLAlchemy ORM.
 - **Migrations**: Database schema management with Alembic.
@@ -96,10 +96,6 @@ Once the application is running, you can access the interactive API documentatio
 
 - **POST** `/api/v1/auth/login`: Get JWT access token.
 - **POST** `/api/v1/users/register`: Register a new user.
-- **GET** `/api/v1/tasks/`: List all tasks for the authenticated user.
-- **POST** `/api/v1/tasks/`: Create a new task.
-- **PUT** `/api/v1/tasks/{id}`: Update a task.
-- **DELETE** `/api/v1/tasks/{id}`: Delete a task.
 
 ## Running Tests
 
@@ -134,8 +130,3 @@ If running the application via Docker, you must execute the tests inside the con
 - **Alembic**: Used for database migrations to handle schema changes reliably over time.
 - **Docker**: Included to provide a consistent environment for deployment and development, orchestrating both the application and the PostgreSQL database.
 
-
-### Assumptions
-- **Data Privacy**: Users can only access and manage their own tasks. Admin roles were not part of the initial scope.
-- **Token Expiry**: JWT tokens are set to expire after a short duration (e.g., 30 minutes) to ensure security, requiring users to re-login or refresh.
-- **Task Status**: Tasks use a status workflow (`pending`, `in_progress`, `completed`) instead of a boolean flag, defaulting to `pending` upon creation.

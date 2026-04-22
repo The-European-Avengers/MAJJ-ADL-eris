@@ -27,5 +27,3 @@ class User(Base):
     longest_streak: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     total_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     last_prediction_date: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=True) 
-
-    tasks: Mapped[List["Task"]] = relationship(back_populates="user")
