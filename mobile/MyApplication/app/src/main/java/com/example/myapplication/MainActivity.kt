@@ -14,12 +14,17 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +36,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -45,11 +51,11 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.navigation.NavType
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
 import com.example.myapplication.data.api.RetrofitClient
 import com.example.myapplication.data.local.CarbonDataRepository
 import com.example.myapplication.data.local.TokenManager
@@ -61,11 +67,28 @@ import com.example.myapplication.utils.NotificationHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.time.LocalTime
 import java.util.Locale
+
+private const val ROUTE_WELCOME = "welcome"
+private const val ROUTE_LOGIN = "login"
+private const val ROUTE_REGISTER = "register"
+private const val ROUTE_APP_SHELL = "app-shell"
+private const val ROUTE_HOME = "home"
+private const val ROUTE_STREAK = "streak"
+private const val ROUTE_LEADERBOARD = "leaderboard"
+
+private data class BottomNavDestination(
+    val route: String,
+    val label: String,
+    val icon: ImageVector
+)
+
+private val bottomNavDestinations = listOf(
+    BottomNavDestination(ROUTE_HOME, "Home", Icons.Filled.Home),
+    BottomNavDestination(ROUTE_STREAK, "Streak", Icons.Filled.LocalFireDepartment),
+    BottomNavDestination(ROUTE_LEADERBOARD, "Leaderboard", Icons.Filled.EmojiEvents)
+)
 
 /**
  * Decodes the `sub` (subject) claim from a JWT token without any external library.
@@ -113,63 +136,124 @@ fun AppNavigation() {
         Log.d("AppNavigation", "Startup carbon cache refresh: $updated")
     }
 
-    val startDestination = if (tokenManager.getToken() != null) "home" else "welcome"
+    val startDestination = if (tokenManager.getToken() != null) ROUTE_APP_SHELL else ROUTE_WELCOME
 
     NavHost(navController = navController, startDestination = startDestination) {
-        composable("welcome") {
+        composable(ROUTE_WELCOME) {
             WelcomeScreen(
-                onNavigateToLogin = { navController.navigate("login") },
-                onNavigateToRegister = { navController.navigate("register") }
+                onNavigateToLogin = { navController.navigate(ROUTE_LOGIN) },
+                onNavigateToRegister = { navController.navigate(ROUTE_REGISTER) }
             )
         }
-        composable("login") {
+        composable(ROUTE_LOGIN) {
             LoginScreen(
                 onLoginSuccess = {
-                    navController.navigate("home") {
-                        popUpTo("welcome") { inclusive = true }
+                    navController.navigate(ROUTE_APP_SHELL) {
+                        popUpTo(ROUTE_WELCOME) { inclusive = true }
                     }
                 }
             )
         }
-        composable("register") {
+        composable(ROUTE_REGISTER) {
             RegisterScreen(
                 onRegisterSuccess = {
-                    navController.navigate("login") {
-                        popUpTo("register") { inclusive = true }
+                    navController.navigate(ROUTE_LOGIN) {
+                        popUpTo(ROUTE_REGISTER) { inclusive = true }
                     }
                 }
             )
         }
-        composable("home") {
-            HomeScreen(
+        composable(ROUTE_APP_SHELL) {
+            AuthenticatedAppShell(
                 onLogout = {
                     tokenManager.clearToken()
-                    navController.navigate("welcome") {
-                        popUpTo("home") { inclusive = true }
+                    navController.navigate(ROUTE_WELCOME) {
+                        popUpTo(ROUTE_APP_SHELL) { inclusive = true }
                     }
-                },
-                onActionSuccess = { streak, score ->
-                    navController.navigate("reward/$streak/$score")
                 }
             )
         }
-        composable(
-            route = "reward/{streak}/{score}",
-            arguments = listOf(
-                navArgument("streak") { type = NavType.IntType },
-                navArgument("score") { type = NavType.FloatType }
-            )
-        ) { backStackEntry ->
-            val streak = backStackEntry.arguments?.getInt("streak") ?: 0
-            val score = backStackEntry.arguments?.getFloat("score") ?: 0f
+    }
+}
 
-            RewardScreen(
-                streak = streak,
-                totalScore = score,
-                onBackToHome = {
-                    navController.popBackStack("home", inclusive = false)
+@Composable
+fun AuthenticatedAppShell(onLogout: () -> Unit) {
+    val navController = rememberNavController()
+    var streak by rememberSaveable { mutableIntStateOf(0) }
+    var totalScore by rememberSaveable { mutableFloatStateOf(0f) }
+    var hasStreakData by rememberSaveable { mutableStateOf(false) }
+    val currentBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = currentBackStackEntry?.destination?.route ?: ROUTE_HOME
+
+    Scaffold(
+        bottomBar = {
+            NavigationBar {
+                bottomNavDestinations.forEach { destination ->
+                    NavigationBarItem(
+                        selected = currentRoute == destination.route,
+                        onClick = {
+                            if (currentRoute == destination.route) return@NavigationBarItem
+                            navController.navigate(destination.route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        icon = {
+                            Icon(
+                                imageVector = destination.icon,
+                                contentDescription = destination.label
+                            )
+                        },
+                        label = { Text(destination.label) }
+                    )
                 }
-            )
+            }
+        }
+    ) { innerPadding ->
+        NavHost(
+            navController = navController,
+            startDestination = ROUTE_HOME,
+            modifier = Modifier.padding(innerPadding)
+        ) {
+            composable(ROUTE_HOME) {
+                HomeScreen(
+                    onLogout = onLogout,
+                    onActionSuccess = { updatedStreak, updatedScore ->
+                        streak = updatedStreak
+                        totalScore = updatedScore
+                        hasStreakData = true
+                        navController.navigate(ROUTE_STREAK) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                )
+            }
+            composable(ROUTE_STREAK) {
+                StreakScreen(
+                    streak = streak,
+                    totalScore = totalScore,
+                    hasStreakData = hasStreakData,
+                    onGoToHome = {
+                        navController.navigate(ROUTE_HOME) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                )
+            }
+            composable(ROUTE_LEADERBOARD) {
+                LeaderboardScreen()
+            }
         }
     }
 }
@@ -400,7 +484,6 @@ fun HomeScreen(
     var errorMessage      by remember { mutableStateOf<String?>(null) }
     var isPredicting      by remember { mutableStateOf(true) }
     var isSubmitting      by remember { mutableStateOf(false) }
-    var cacheInfoText     by remember { mutableStateOf("Cache: loading...") }
     var isRefreshingCache by remember { mutableStateOf(false) }
 
     // Timestamps for real-session emission calculation
@@ -444,7 +527,7 @@ fun HomeScreen(
             return@LaunchedEffect
         }
         try {
-            val result = withContext(Dispatchers.IO) {
+            val predictions = withContext(Dispatchers.IO) {
                 val processor = FeatureProcessor()
                 var dataSource = "cache"
                 var records = carbonDataRepository.getCachedRecords()
@@ -462,13 +545,6 @@ fun HomeScreen(
                 }
 
                 val diagnostics = carbonDataRepository.getCacheDiagnostics()
-                val refreshText = if (diagnostics.lastRefreshMs > 0L) {
-                    Instant.ofEpochMilli(diagnostics.lastRefreshMs)
-                        .atZone(ZoneId.systemDefault()).toLocalDateTime()
-                        .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
-                } else "never"
-
-                val cacheInfo = "Source: $dataSource | Rows: ${diagnostics.recordCount} | Gap(h): ${diagnostics.largestGapHours} | Last sync: $refreshText"
                 Log.d("CACHE_DEBUG", "source=$dataSource rows=${diagnostics.recordCount} gap=${diagnostics.largestGapHours}h")
 
                 val inputTensor = processor.processData(records)
@@ -478,12 +554,11 @@ fun HomeScreen(
                 val predictions = predictor.predict(inputTensor)
                 val inferenceMs = System.currentTimeMillis() - inferenceStartMs
                 Log.d("ML_INFERENCE", "Inference time: ${inferenceMs}ms (${inferenceMs / 1000.0}s)")
- 
-                Pair(predictions, cacheInfo)
+
+                predictions
             }
-            predictionValues  = result.first.toList()
+            predictionValues  = predictions.toList()
             chargingAnalysis  = analyseChargingWindow(predictionValues)
-            cacheInfoText     = result.second
         } catch (e: Exception) {
             errorMessage = "Error: ${e.message}"
             Log.e("ML_Error", "Fallo durante el procesamiento o predicción", e)
@@ -542,14 +617,6 @@ fun HomeScreen(
                 modifier = Modifier.padding(top = 8.dp)
             )
 
-            Text(
-                text = cacheInfoText,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 6.dp)
-            )
-
             Button(
                 onClick = {
                     isRefreshingCache = true
@@ -558,13 +625,6 @@ fun HomeScreen(
                             val success = carbonDataRepository.refreshCacheFromPublicApi(daysBack = 20)
                             if (success) {
                                 Toast.makeText(context, "Cache refreshed!", Toast.LENGTH_SHORT).show()
-                                val d = carbonDataRepository.getCacheDiagnostics()
-                                val t = if (d.lastRefreshMs > 0L)
-                                    Instant.ofEpochMilli(d.lastRefreshMs)
-                                        .atZone(ZoneId.systemDefault()).toLocalDateTime()
-                                        .format(DateTimeFormatter.ofPattern("HH:mm"))
-                                else "?"
-                                cacheInfoText = "✓ Cache: ${d.recordCount} rows | Gap: ${d.largestGapHours}h | Sync: $t"
                             } else {
                                 Toast.makeText(context, "Cache refresh failed - check logs", Toast.LENGTH_LONG).show()
                             }
@@ -674,77 +734,235 @@ fun HomeScreen(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// RewardScreen (unchanged)
-// ─────────────────────────────────────────────────────────────────────────────
 @Composable
-fun RewardScreen(
+fun StreakScreen(
     streak: Int,
     totalScore: Float,
-    onBackToHome: () -> Unit
+    hasStreakData: Boolean,
+    onGoToHome: () -> Unit
 ) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = if (hasStreakData) Arrangement.Top else Arrangement.Center
+        ) {
+            Text(
+                text = "Streak",
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+
+            if (hasStreakData) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Current streak: $streak days",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Total points: $totalScore pts",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "This view updates after you complete the charging action from Home.",
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.75f),
+                    textAlign = TextAlign.Center
+                )
+            } else {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "No streak data yet",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Complete an action from Home to see your updated streak and points here.",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedButton(onClick = onGoToHome) {
+                    Text("Go to Home")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun LeaderboardScreen() {
     val context = LocalContext.current
     val tokenManager = remember { TokenManager(context) }
     val authToken = tokenManager.getToken()?.let { "Bearer $it" } ?: ""
 
     var leaderboard by remember { mutableStateOf<List<LeaderboardEntry>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(authToken) {
-        if (authToken.isNotEmpty()) {
-            try {
-                val response = RetrofitClient.apiService.getLeaderboard(authToken, 10)
-                if (response.isSuccessful) leaderboard = response.body() ?: emptyList()
-            } catch (_: Exception) {
-            } finally {
-                isLoading = false
+        if (authToken.isEmpty()) {
+            isLoading = false
+            errorMessage = "Session expired. Please sign in again."
+            return@LaunchedEffect
+        }
+
+        isLoading = true
+        errorMessage = null
+
+        try {
+            val response = RetrofitClient.apiService.getLeaderboard(authToken, 10)
+            if (response.isSuccessful) {
+                leaderboard = response.body() ?: emptyList()
+            } else {
+                errorMessage = "Could not load leaderboard right now."
             }
+        } catch (_: Exception) {
+            errorMessage = "Could not load leaderboard right now."
+        } finally {
+            isLoading = false
         }
     }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp)
         ) {
-            Spacer(modifier = Modifier.height(32.dp))
-            Text("Congratulations!", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.Center)
-            Spacer(modifier = Modifier.height(24.dp))
-            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-                Column(modifier = Modifier.padding(24.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Streak: $streak days", fontSize = 18.sp, fontWeight = FontWeight.Medium)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Total points: $totalScore pts", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(
+                text = "Leaderboard",
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "See how your score compares with other users.",
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.75f)
+            )
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            when {
+                isLoading -> Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
                 }
-            }
-            Spacer(modifier = Modifier.height(32.dp))
-            Text("Global Leaderboard", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Divider(modifier = Modifier.padding(vertical = 12.dp))
-            if (isLoading) {
-                CircularProgressIndicator()
-            } else {
-                LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+
+                errorMessage != null -> Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = errorMessage ?: "Unknown error",
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center
+                    )
+                }
+
+                leaderboard.isEmpty() -> Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "No leaderboard data available yet.",
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.75f)
+                    )
+                }
+
+                else -> LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                ) {
                     itemsIndexed(leaderboard) { index, entry ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                            )
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("#${index + 1}", fontWeight = FontWeight.Bold, modifier = Modifier.width(30.dp))
-                                Text(entry.username, fontSize = 16.sp)
-                            }
-                            Row {
-                                Text("Streak: ${entry.current_streak}", modifier = Modifier.padding(end = 16.dp))
-                                Text("${entry.total_score} pts", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 18.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "#${index + 1}",
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.width(36.dp)
+                                    )
+                                    Text(entry.username, fontSize = 16.sp)
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("Streak: ${entry.current_streak}")
+                                    Text(
+                                        text = "${entry.total_score} pts",
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
                         }
                     }
                 }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = onBackToHome, modifier = Modifier.fillMaxWidth().height(50.dp)) {
-                Text("Back to Home", fontSize = 16.sp)
             }
         }
     }
