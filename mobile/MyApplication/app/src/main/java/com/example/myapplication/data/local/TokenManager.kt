@@ -11,7 +11,9 @@ class TokenManager(context: Context) {
     fun saveToken(token: String) {
         prefs.edit().putString("jwt_token", token).apply()
         // Extract and cache username from JWT payload automatically
-        decodeUsernameFromJwt(token)?.let { saveUsername(it) }
+        if (getUsername().isNullOrBlank()) {
+            decodeUsernameFromJwt(token)?.let { saveUsername(it) }
+        }
     }
 
     fun getToken(): String? = prefs.getString("jwt_token", null)

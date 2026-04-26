@@ -77,6 +77,8 @@ private const val ROUTE_APP_SHELL = "app-shell"
 private const val ROUTE_HOME = "home"
 private const val ROUTE_STREAK = "streak"
 private const val ROUTE_LEADERBOARD = "leaderboard"
+private const val USERNAME_HOME_AND_STREAK = "username1"
+private const val USERNAME_HOME_AND_LEADERBOARD = "username2"
 
 private data class BottomNavDestination(
     val route: String,
@@ -89,6 +91,32 @@ private val bottomNavDestinations = listOf(
     BottomNavDestination(ROUTE_STREAK, "Streak", Icons.Filled.LocalFireDepartment),
     BottomNavDestination(ROUTE_LEADERBOARD, "Leaderboard", Icons.Filled.EmojiEvents)
 )
+
+private fun normalizeUsername(username: String?): String? = username?.trim()?.lowercase(Locale.ROOT)
+
+private fun resolveCurrentUsername(tokenManager: TokenManager): String? {
+    val usernameFromToken = tokenManager.getToken()
+        ?.let { decodeUsernameFromJwt(it) }
+        ?.takeIf { it.isNotBlank() }
+
+    val usernameFromPrefs = tokenManager.getUsername()?.takeIf { it.isNotBlank() }
+
+    return usernameFromToken ?: usernameFromPrefs
+}
+
+private fun bottomNavDestinationsFor(username: String?): List<BottomNavDestination> = when (normalizeUsername(username)) {
+    USERNAME_HOME_AND_STREAK -> listOf(
+        BottomNavDestination(ROUTE_HOME, "Home", Icons.Filled.Home),
+        BottomNavDestination(ROUTE_STREAK, "Streak", Icons.Filled.LocalFireDepartment)
+    )
+
+    USERNAME_HOME_AND_LEADERBOARD -> listOf(
+        BottomNavDestination(ROUTE_HOME, "Home", Icons.Filled.Home),
+        BottomNavDestination(ROUTE_LEADERBOARD, "Leaderboard", Icons.Filled.EmojiEvents)
+    )
+
+    else -> bottomNavDestinations
+}
 
 /**
  * Decodes the `sub` (subject) claim from a JWT token without any external library.
@@ -178,17 +206,24 @@ fun AppNavigation() {
 
 @Composable
 fun AuthenticatedAppShell(onLogout: () -> Unit) {
+    val context = LocalContext.current
+    val tokenManager = remember { TokenManager(context) }
     val navController = rememberNavController()
     var streak by rememberSaveable { mutableIntStateOf(0) }
     var totalScore by rememberSaveable { mutableFloatStateOf(0f) }
     var hasStreakData by rememberSaveable { mutableStateOf(false) }
+    val username = remember { resolveCurrentUsername(tokenManager) }
+    val availableDestinations = remember(username) { bottomNavDestinationsFor(username) }
+    val actionDestinationRoute = remember(availableDestinations) {
+        availableDestinations.firstOrNull { it.route != ROUTE_HOME }?.route
+    }
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route ?: ROUTE_HOME
 
     Scaffold(
         bottomBar = {
             NavigationBar {
-                bottomNavDestinations.forEach { destination ->
+                availableDestinations.forEach { destination ->
                     NavigationBarItem(
                         selected = currentRoute == destination.route,
                         onClick = {
@@ -225,12 +260,14 @@ fun AuthenticatedAppShell(onLogout: () -> Unit) {
                         streak = updatedStreak
                         totalScore = updatedScore
                         hasStreakData = true
-                        navController.navigate(ROUTE_STREAK) {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = true
+                        actionDestinationRoute?.let { targetRoute ->
+                            navController.navigate(targetRoute) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
                             }
-                            launchSingleTop = true
-                            restoreState = true
                         }
                     }
                 )
@@ -368,6 +405,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                                 val response = RetrofitClient.apiService.login(username, password)
                                 if (response.isSuccessful && response.body() != null) {
                                     tokenManager.saveToken(response.body()!!.accessToken)
+                                    tokenManager.saveUsername(username.trim())
                                     Toast.makeText(context, "Login successful!", Toast.LENGTH_SHORT).show()
                                     onLoginSuccess()
                                 } else {
@@ -468,10 +506,8 @@ fun HomeScreen(
     val tokenManager = remember { TokenManager(context) }
     val authToken = tokenManager.getToken()?.let { "Bearer $it" } ?: ""
     val username = remember {
-    tokenManager.getToken()?.let { decodeUsernameFromJwt(it) }
-        ?: tokenManager.getUsername()  // saved at login time from the form field
-        ?: "User"
-}
+        resolveCurrentUsername(tokenManager) ?: "User"
+    }
 
     val notificationHelper = remember { NotificationHelper(context) }
     val chargingDetector = remember { ChargingDetector(context) }
@@ -714,7 +750,7 @@ fun HomeScreen(
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
-                enabled = !isSubmitting && !isPredicting,
+                enabled = isCharging && !isSubmitting && !isPredicting,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.tertiary
                 )
