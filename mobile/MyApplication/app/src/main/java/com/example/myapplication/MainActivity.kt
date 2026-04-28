@@ -115,7 +115,9 @@ private fun bottomNavDestinationsFor(username: String?): List<BottomNavDestinati
         BottomNavDestination(ROUTE_LEADERBOARD, "Leaderboard", Icons.Filled.EmojiEvents)
     )
 
-    else -> bottomNavDestinations
+    else -> listOf(
+        BottomNavDestination(ROUTE_HOME, "Home", Icons.Filled.Home)
+    )
 }
 
 /**
