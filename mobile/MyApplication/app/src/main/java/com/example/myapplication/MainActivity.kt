@@ -61,6 +61,7 @@ import com.example.myapplication.data.local.CarbonDataRepository
 import com.example.myapplication.data.local.TokenManager
 import com.example.myapplication.data.model.LeaderboardEntry
 import com.example.myapplication.data.model.RegisterRequest
+import com.example.myapplication.utils.ChargingSessionStore
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import com.example.myapplication.utils.ChargingDetector
 import com.example.myapplication.utils.NotificationHelper
@@ -506,6 +507,7 @@ fun HomeScreen(
     val carbonDataRepository = remember { CarbonDataRepository(context) }
     val coroutineScope = rememberCoroutineScope()
     val tokenManager = remember { TokenManager(context) }
+    val chargingSessionStore = remember { ChargingSessionStore(context) }
     val authToken = tokenManager.getToken()?.let { "Bearer $it" } ?: ""
     val username = remember {
         resolveCurrentUsername(tokenManager) ?: "User"
@@ -525,17 +527,24 @@ fun HomeScreen(
     var isRefreshingCache by remember { mutableStateOf(false) }
 
     // Timestamps for real-session emission calculation
-    var plugInTimeMs      by remember { mutableStateOf<Long?>(null) }
-    var predictionHourRef by remember { mutableStateOf(LocalTime.now().hour) }
+    var plugInTimeMs      by remember { mutableStateOf(chargingSessionStore.getPlugInTimeMs()) }
+    var predictionHourRef by remember { mutableIntStateOf(chargingSessionStore.getPredictionHourRef() ?: LocalTime.now().hour) }
     var lastSession       by remember { mutableStateOf<ChargingSession?>(null) }
 
     LaunchedEffect(isCharging) {
         val wasCharging = previousChargingState
         previousChargingState = isCharging
 
+        if (isCharging && plugInTimeMs == null) {
+            plugInTimeMs = chargingSessionStore.getPlugInTimeMs()
+            predictionHourRef = chargingSessionStore.getPredictionHourRef() ?: predictionHourRef
+        }
+
         if (wasCharging == false && isCharging) {
-            plugInTimeMs      = System.currentTimeMillis()
+            val now = System.currentTimeMillis()
+            plugInTimeMs      = now
             predictionHourRef = LocalTime.now().hour
+            chargingSessionStore.saveSessionStart(now, predictionHourRef)
             notificationHelper.showNotification(
                 "¡Charger detected!",
                 "You've plugged in your device. Is it a good time to charge it?"
@@ -543,16 +552,18 @@ fun HomeScreen(
         }
 
         if (wasCharging == true && !isCharging) {
-            val plugIn = plugInTimeMs
+            val plugIn = plugInTimeMs ?: chargingSessionStore.getPlugInTimeMs()
+            val sessionPredictionHour = chargingSessionStore.getPredictionHourRef() ?: predictionHourRef
             if (plugIn != null && predictionValues.isNotEmpty()) {
                 lastSession = calculateSessionEmission(
                     plugInMs            = plugIn,
                     plugOutMs           = System.currentTimeMillis(),
                     predictionValues    = predictionValues,
-                    predictionStartHour = predictionHourRef
+                    predictionStartHour = sessionPredictionHour
                 )
             }
             plugInTimeMs = null
+            chargingSessionStore.clearSessionStart()
         }
     }
 
