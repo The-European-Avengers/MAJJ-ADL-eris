@@ -61,6 +61,7 @@ import com.example.myapplication.data.local.CarbonDataRepository
 import com.example.myapplication.data.local.TokenManager
 import com.example.myapplication.data.model.LeaderboardEntry
 import com.example.myapplication.data.model.RegisterRequest
+import com.example.myapplication.utils.NotificationInsightStore
 import com.example.myapplication.utils.ChargingSessionStore
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import com.example.myapplication.utils.ChargingDetector
@@ -80,6 +81,7 @@ private const val ROUTE_STREAK = "streak"
 private const val ROUTE_LEADERBOARD = "leaderboard"
 private const val USERNAME_HOME_AND_STREAK = "username1"
 private const val USERNAME_HOME_AND_LEADERBOARD = "username2"
+private const val USERNAME_FULL_MENU = "username4"
 
 private data class BottomNavDestination(
     val route: String,
@@ -115,6 +117,8 @@ private fun bottomNavDestinationsFor(username: String?): List<BottomNavDestinati
         BottomNavDestination(ROUTE_HOME, "Home", Icons.Filled.Home),
         BottomNavDestination(ROUTE_LEADERBOARD, "Leaderboard", Icons.Filled.EmojiEvents)
     )
+
+    USERNAME_FULL_MENU -> bottomNavDestinations
 
     else -> listOf(
         BottomNavDestination(ROUTE_HOME, "Home", Icons.Filled.Home)
@@ -507,6 +511,7 @@ fun HomeScreen(
     val carbonDataRepository = remember { CarbonDataRepository(context) }
     val coroutineScope = rememberCoroutineScope()
     val tokenManager = remember { TokenManager(context) }
+    val notificationInsightStore = remember { NotificationInsightStore(context) }
     val chargingSessionStore = remember { ChargingSessionStore(context) }
     val authToken = tokenManager.getToken()?.let { "Bearer $it" } ?: ""
     val username = remember {
@@ -545,10 +550,7 @@ fun HomeScreen(
             plugInTimeMs      = now
             predictionHourRef = LocalTime.now().hour
             chargingSessionStore.saveSessionStart(now, predictionHourRef)
-            notificationHelper.showNotification(
-                "¡Charger detected!",
-                "You've plugged in your device. Is it a good time to charge it?"
-            )
+            notificationHelper.showChargingWarningNotification()
         }
 
         if (wasCharging == true && !isCharging) {
@@ -608,6 +610,7 @@ fun HomeScreen(
             }
             predictionValues  = predictions.toList()
             chargingAnalysis  = analyseChargingWindow(predictionValues)
+            chargingAnalysis?.let { notificationInsightStore.saveAnalysisSnapshot(it) }
         } catch (e: Exception) {
             errorMessage = "Error: ${e.message}"
             Log.e("ML_Error", "Fallo durante el procesamiento o predicción", e)
@@ -828,12 +831,6 @@ fun StreakScreen(
                             text = "Current streak: $streak days",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Medium
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Total points: $totalScore pts",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold
                         )
                     }
                 }

@@ -16,10 +16,7 @@ class ChargingReceiver : BroadcastReceiver() {
                 plugInTimeMs = System.currentTimeMillis(),
                 predictionHourRef = LocalTime.now().hour
             )
-            NotificationHelper(context.applicationContext).showNotification(
-                "¡Charger detected!",
-                "You've plugged in your device. Is it a good time to charge it?"
-            )
+            NotificationHelper(context.applicationContext).showChargingWarningNotification()
         }
     }
 }

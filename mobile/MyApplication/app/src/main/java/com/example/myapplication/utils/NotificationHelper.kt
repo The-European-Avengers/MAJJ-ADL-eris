@@ -16,6 +16,8 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.myapplication.R
 import com.example.myapplication.MainActivity
+import java.util.Locale
+import kotlin.math.roundToInt
 
 class NotificationHelper(private val context: Context) {
     private val appContext = context.applicationContext
@@ -40,7 +42,7 @@ class NotificationHelper(private val context: Context) {
         }
     }
 
-    fun showNotification(title: String, message: String) {
+    fun showNotification(title: String, message: String, expandedMessage: String = message) {
         if (!canPostNotifications()) {
             Log.w("NotificationHelper", "Notification skipped because permission is missing or notifications are disabled")
             return
@@ -51,6 +53,7 @@ class NotificationHelper(private val context: Context) {
             .setSmallIcon(R.drawable.green_pause)
             .setContentTitle(title)
             .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(expandedMessage))
             .setPriority(NotificationCompat.PRIORITY_HIGH) // Subimos prioridad
             .setDefaults(NotificationCompat.DEFAULT_ALL)   // Añade sonido/vibración por defecto
             .setContentIntent(createContentIntent())
@@ -63,6 +66,56 @@ class NotificationHelper(private val context: Context) {
             Log.e("NotificationHelper", "Error showing notification", e)
         }
     }
+
+    fun showChargingWarningNotification() {
+        val snapshot = NotificationInsightStore(appContext).getLatestSnapshot()
+        val notificationContent = buildChargingWarningContent(snapshot)
+
+        showNotification(
+            title = notificationContent.title,
+            message = notificationContent.message,
+            expandedMessage = notificationContent.expandedMessage
+        )
+    }
+
+    private fun buildChargingWarningContent(snapshot: NotificationInsightSnapshot?): ChargingNotificationContent {
+        if (snapshot == null) {
+            return ChargingNotificationContent(
+                title = "Charging warning",
+                message = "Charging now may raise your carbon impact.",
+                expandedMessage = "Charging now may raise your carbon impact. Open GreenPause to compare now with a cleaner moment later."
+            )
+        }
+
+        // 1.5 gCO2eq is roughly the carbon cost of charging on a ~170 gCO2/kWh grid.
+        // It gives a practical split between relatively clean vs clearly dirty windows.
+        val thresholdGrams = 1.5f
+        val analogy = if (snapshot.carbonProducedGrams < thresholdGrams) {
+            "Charging now is closer to driving a regular car for a short trip."
+        } else {
+            "Charging now is closer to a high-impact choice, more like air travel than normal driving."
+        }
+
+        return if (snapshot.isNowBest) {
+            ChargingNotificationContent(
+                title = "Good time to charge",
+                message = "This is one of the cleaner moments to charge.",
+                expandedMessage = "$analogy No clearly better charging window was found soon."
+            )
+        } else {
+            ChargingNotificationContent(
+                title = "Charging warning",
+                message = "This is not a clean moment to charge.",
+                expandedMessage = "$analogy Waiting a bit could lower the carbon impact of this charge."
+            )
+        }
+    }
+
+    private data class ChargingNotificationContent(
+        val title: String,
+        val message: String,
+        val expandedMessage: String
+    )
 
     private fun canPostNotifications(): Boolean {
         val notificationsEnabled = NotificationManagerCompat.from(appContext).areNotificationsEnabled()
