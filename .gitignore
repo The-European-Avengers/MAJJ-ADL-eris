@@ -7,3 +7,5 @@ __pycache__/
 electricity-prod/electricity_prod_2021_2026.csv
 ml/chunks/
 
+/mobile/MyApplication/.idea
+/mobile/MyApplication/app/.idea
