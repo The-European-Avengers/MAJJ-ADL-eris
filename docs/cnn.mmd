@@ -1,3 +1,5 @@
+%%{init: {"theme": "base", "flowchart": {"htmlLabels": false}, "themeVariables": {"fontFamily": "Arial, sans-serif", "fontWeight": "700", "primaryTextColor": "#111827", "lineColor": "#374151"}}}%%
+
 graph LR
     subgraph INPUT["Input: 24h × 5 features"]
         I1["Carbon Intensity"]
@@ -8,12 +10,20 @@ graph LR
     end
 
     subgraph CNN["CNN Model (99K params)"]
-        C1["Conv1D<br/>64 filters, kernel=3, ReLU<br/>(24,5) → (22,64)"]
-        C2["Conv1D<br/>32 filters, kernel=3, ReLU<br/>(22,64) → (20,32)"]
-        F["Flatten<br/>(20,32) → (640)"]
-        D1["Dense 128 + ReLU<br/>Dropout 0.3"]
-        D2["Dense 64 + ReLU<br/>Dropout 0.3"]
-        D3["Dense 24<br/>(output layer)"]
+        C1["`Conv1D
+    64 filters, kernel=3, ReLU
+    (24,5) → (22,64)`"]
+        C2["`Conv1D
+    32 filters, kernel=3, ReLU
+    (22,64) → (20,32)`"]
+        F["`Flatten
+    (20,32) → (640)`"]
+        D1["`Dense 128 + ReLU
+    Dropout 0.3`"]
+        D2["`Dense 64 + ReLU
+    Dropout 0.3`"]
+        D3["`Dense 24
+    (output layer)`"]
     end
 
     subgraph OUTPUT["Output: 24 predictions"]
@@ -34,6 +44,23 @@ graph LR
     D2 --> D3
     D3 --> OUTPUT
 
-    style INPUT fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    style CNN fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
-    style OUTPUT fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef modelText color:#111827,font-weight:bold,stroke-width:2px
+    class I1,I2,I3,C1,C2,F,D1,D2,D3,O1,O2,O3,O4 modelText
+
+    style I1 color:#111827,font-weight:bold
+    style I2 color:#111827,font-weight:bold
+    style I3 color:#111827,font-weight:bold
+    style C1 color:#111827,font-weight:bold
+    style C2 color:#111827,font-weight:bold
+    style F color:#111827,font-weight:bold
+    style D1 color:#111827,font-weight:bold
+    style D2 color:#111827,font-weight:bold
+    style D3 color:#111827,font-weight:bold
+    style O1 color:#111827,font-weight:bold
+    style O2 color:#111827,font-weight:bold
+    style O3 color:#111827,font-weight:bold
+    style O4 color:#111827,font-weight:bold
+
+    style INPUT fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#111827,font-weight:bold
+    style CNN fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#111827,font-weight:bold
+    style OUTPUT fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#111827,font-weight:bold
