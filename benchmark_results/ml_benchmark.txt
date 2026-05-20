@@ -1,0 +1,8 @@
+          ML Benchmark (100 runs):
+          Preprocessing: 1.35 ms
+          Model load: 5.41 ms
+          Inference:
+              Mean:   3.94 ms
+              Median: 1.39 ms
+p95:     17.52 ms
+StdDev:  7.23 ms

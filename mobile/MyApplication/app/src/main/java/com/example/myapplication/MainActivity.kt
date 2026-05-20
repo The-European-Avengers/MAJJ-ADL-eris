@@ -3,6 +3,8 @@ package com.example.myapplication
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
+import android.content.Context
+import java.io.FileOutputStream
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -571,10 +573,78 @@ fun HomeScreen(
 
     DisposableEffect(Unit) { onDispose { predictor.close() } }
 
+
+    // --- BENCHMARK EXPERIMENTO ML ---
+    suspend fun runMLBenchmark(context: Context, records: List<CarbonRecord>) : String {
+        val processor = FeatureProcessor()
+        // 1. Medir preprocesado
+        val t0 = System.nanoTime()
+        val inputTensor = processor.processData(records)
+            ?: throw Exception("History is too short. At least 360 hours of data are required.")
+        val t1 = System.nanoTime()
+        val preprocessMs = (t1 - t0) / 1_000_000.0
+
+        // 2. Medir carga de modelo
+        val t2 = System.nanoTime()
+        val predictorBench = CarbonModelPredictor(context)
+        val t3 = System.nanoTime()
+        val loadModelMs = (t3 - t2) / 1_000_000.0
+
+        // 3. Warmup
+        val warmup = 20
+        for (i in 0 until warmup) {
+            predictorBench.predict(inputTensor)
+        }
+
+        // 4. Inferencias repetidas
+        val runs = 100
+        val times = DoubleArray(runs)
+        for (i in 0 until runs) {
+            val tStart = System.nanoTime()
+            predictorBench.predict(inputTensor)
+            val tEnd = System.nanoTime()
+            times[i] = (tEnd - tStart) / 1_000_000.0
+        }
+        predictorBench.close()
+
+        // Estadísticas
+        val mean = times.average()
+        val sorted = times.sorted()
+        val median = if (runs % 2 == 0) (sorted[runs/2-1] + sorted[runs/2])/2 else sorted[runs/2]
+        val p95 = sorted[(runs*0.95).toInt().coerceAtMost(runs-1)]
+        val std = Math.sqrt(times.map { (it - mean)*(it - mean) }.average())
+
+                val result = """
+                        ML Benchmark (100 runs):
+                        Preprocessing: ${"%.2f".format(preprocessMs)} ms
+                        Model load: ${"%.2f".format(loadModelMs)} ms
+                        Inference:
+                            Mean:   ${"%.2f".format(mean)} ms
+                            Median: ${"%.2f".format(median)} ms
+              p95:     ${"%.2f".format(p95)} ms
+              StdDev:  ${"%.2f".format(std)} ms
+        """.trimIndent()
+        Log.i("ML_BENCHMARK", result)
+        // Guardar en archivo interno
+        try {
+            val filename = "ml_benchmark.txt"
+            context.openFileOutput(filename, Context.MODE_PRIVATE).use { fos: FileOutputStream ->
+                fos.write(result.toByteArray())
+            }
+            Log.i("ML_BENCHMARK", "Benchmark saved at: ${context.filesDir}/$filename")
+        } catch (e: Exception) {
+            Log.e("ML_BENCHMARK", "Error saving benchmark: ${e.message}", e)
+        }
+        return result
+    }
+
+    // --- FIN BENCHMARK ---
+
+    // Run benchmark in background while keeping normal app inference/UI behavior.
     LaunchedEffect(authToken) {
         if (authToken.isEmpty()) {
             isPredicting = false
-            errorMessage = "Sesion no valida. Inicia sesion de nuevo."
+            errorMessage = "Invalid session. Please sign in again."
             return@LaunchedEffect
         }
         try {
@@ -598,22 +668,25 @@ fun HomeScreen(
                 val diagnostics = carbonDataRepository.getCacheDiagnostics()
                 Log.d("CACHE_DEBUG", "source=$dataSource rows=${diagnostics.recordCount} gap=${diagnostics.largestGapHours}h")
 
+                // Keep benchmark execution, but do not expose benchmark text in the UI.
+                try {
+                    runMLBenchmark(context, records)
+                } catch (e: Exception) {
+                    Log.e("ML_BENCHMARK", "Benchmark execution failed: ${e.message}", e)
+                }
+
                 val inputTensor = processor.processData(records)
-                    ?: throw Exception("El historial es demasiado corto. Se requieren al menos 360 horas de datos.")
+                    ?: throw Exception("History is too short. At least 360 hours of data are required.")
 
-                val inferenceStartMs = System.currentTimeMillis()
-                val predictions = predictor.predict(inputTensor)
-                val inferenceMs = System.currentTimeMillis() - inferenceStartMs
-                Log.d("ML_INFERENCE", "Inference time: ${inferenceMs}ms (${inferenceMs / 1000.0}s)")
-
-                predictions
+                predictor.predict(inputTensor)
             }
-            predictionValues  = predictions.toList()
-            chargingAnalysis  = analyseChargingWindow(predictionValues)
+            predictionValues = predictions.toList()
+            chargingAnalysis = analyseChargingWindow(predictionValues)
             chargingAnalysis?.let { notificationInsightStore.saveAnalysisSnapshot(it) }
+            errorMessage = null
         } catch (e: Exception) {
             errorMessage = "Error: ${e.message}"
-            Log.e("ML_Error", "Fallo durante el procesamiento o predicción", e)
+            Log.e("ML_Error", "ML benchmark failed", e)
         } finally {
             isPredicting = false
         }
